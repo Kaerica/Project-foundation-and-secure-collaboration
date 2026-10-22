@@ -1,0 +1,20 @@
+{
+  "name": "project-foundation-and-secure-collaboration",
+  "version": "1.0.0",
+  "description": "The Inventory Manager is an application that helps users organize products, manage stock quantities, and identify products that need restocking.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kaerica/Project-foundation-and-secure-collaboration.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Kaerica/Project-foundation-and-secure-collaboration/issues"
+  },
+  "homepage": "https://github.com/Kaerica/Project-foundation-and-secure-collaboration#readme"
+}
