@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   products,
   displayProducts,
+  addProduct,
   updateQuantity,
   getLowStockProducts
 } = require("./products");
@@ -28,6 +29,71 @@ test("displayProducts is a function", () => {
   assert.equal(typeof displayProducts, "function");
 });
 
+test("adds a new product with a unique ID", () => {
+  const originalLength = products.length;
+  const originalIds = products.map((product) => product.id);
+
+  try {
+    const product = addProduct("Pencil", 300, 40);
+
+    assert.equal(products.length, originalLength + 1);
+    assert.equal(product.name, "Pencil");
+    assert.equal(product.price, 300);
+    assert.equal(product.quantity, 40);
+    assert.ok(Number.isInteger(product.id));
+    assert.ok(!originalIds.includes(product.id));
+    assert.ok(products.includes(product));
+  } finally {
+    products.length = originalLength;
+  }
+});
+
+test("trims extra spaces from a product name", () => {
+  const originalLength = products.length;
+
+  try {
+    const product = addProduct("  Exercise Book  ", 1000, 15);
+    assert.equal(product.name, "Exercise Book");
+  } finally {
+    products.length = originalLength;
+  }
+});
+
+test("rejects an empty product name", () => {
+  assert.throws(
+    () => addProduct("   ", 500, 10),
+    { message: "Product name must not be empty." }
+  );
+});
+
+test("rejects a negative product price", () => {
+  assert.throws(
+    () => addProduct("Pencil", -100, 10),
+    { message: "Price must be a non-negative number." }
+  );
+});
+
+test("rejects an invalid product price", () => {
+  assert.throws(
+    () => addProduct("Pencil", "500", 10),
+    { message: "Price must be a non-negative number." }
+  );
+});
+
+test("rejects negative initial quantities", () => {
+  assert.throws(
+    () => addProduct("Pencil", 500, -1),
+    { message: "Quantity must be a non-negative whole number." }
+  );
+});
+
+test("rejects decimal initial quantities", () => {
+  assert.throws(
+    () => addProduct("Pencil", 500, 2.5),
+    { message: "Quantity must be a non-negative whole number." }
+  );
+});
+
 test("updates the quantity of an existing product", () => {
   const product = products[0];
   const originalQuantity = product.quantity;
@@ -43,27 +109,21 @@ test("updates the quantity of an existing product", () => {
 test("rejects negative quantities", () => {
   assert.throws(
     () => updateQuantity(products[0].id, -1),
-    {
-      message: "Quantity must be a non-negative whole number."
-    }
+    { message: "Quantity must be a non-negative whole number." }
   );
 });
 
 test("rejects non-integer quantities", () => {
   assert.throws(
     () => updateQuantity(products[0].id, 2.5),
-    {
-      message: "Quantity must be a non-negative whole number."
-    }
+    { message: "Quantity must be a non-negative whole number." }
   );
 });
 
 test("rejects unknown product IDs", () => {
   assert.throws(
     () => updateQuantity(999, 10),
-    {
-      message: "Product not found."
-    }
+    { message: "Product not found." }
   );
 });
 

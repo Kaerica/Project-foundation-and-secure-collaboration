@@ -43,6 +43,36 @@ function displayProducts() {
   console.log(`Total products: ${products.length}`);
 }
 
+function addProduct(name, price, quantity) {
+  if (typeof name !== "string" || name.trim() === "") {
+    throw new Error("Product name must not be empty.");
+  }
+
+  if (typeof price !== "number" || !Number.isFinite(price) || price < 0) {
+    throw new Error("Price must be a non-negative number.");
+  }
+
+  if (!Number.isInteger(quantity) || quantity < 0) {
+    throw new Error("Quantity must be a non-negative whole number.");
+  }
+
+  const nextId =
+    products.length === 0
+      ? 1
+      : Math.max(...products.map((product) => product.id)) + 1;
+
+  const product = {
+    id: nextId,
+    name: name.trim(),
+    price,
+    quantity
+  };
+
+  products.push(product);
+
+  return product;
+}
+
 function updateQuantity(productId, newQuantity) {
   const product = products.find((item) => item.id === productId);
 
@@ -68,6 +98,7 @@ function getLowStockProducts() {
 module.exports = {
   products,
   displayProducts,
+  addProduct,
   updateQuantity,
   getLowStockProducts
 };
