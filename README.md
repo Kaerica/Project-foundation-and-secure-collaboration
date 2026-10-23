@@ -1,8 +1,30 @@
 # Inventory Manager
 
+> **Tagline:** Know your stock before you run out — simple inventory tracking for small shops in Rwanda.
+
 ## Project Overview
 
 The Inventory Manager is an application that helps users organize products, manage stock quantities, and identify products that need restocking.
+
+## Problem Statement
+
+Many small retail businesses in Rwanda, such as school-supply shops, kiosks, and neighbourhood boutiques, still track their stock in paper notebooks or from memory. This makes it hard to know exactly how much of each product is left, so owners often run out of fast-selling items (for example notebooks and pens at the start of a school term) without noticing in time. Running out of stock means lost sales and unhappy customers, while over-ordering ties up limited cash.
+
+The Inventory Manager gives these shop owners a simple digital record of their products, prices in Rwandan francs (RWF), and quantities, and automatically flags products that are running low so they can restock before they run out.
+
+## Target Users
+
+- **Small shop owners** (school-supply shops, kiosks, boutiques) who need an easy way to see what is in stock and what needs restocking.
+- **Shop attendants** who record new products and update quantities after sales or deliveries.
+- **Small business cooperatives** that want a shared, consistent way to track stock across members in the future.
+
+## Technology Stack
+
+- **Language:** JavaScript
+- **Runtime:** Node.js
+- **Package manager:** npm
+- **Testing:** Node.js built-in test runner (`node --test`) with `node:assert`
+- **Version control & collaboration:** Git, GitHub (Projects board, pull requests, branch protection)
 
 ## Project Objectives
 
@@ -15,18 +37,23 @@ The Inventory Manager is an application that helps users organize products, mana
 ## Main Features
 
 ### 1. View Products
+
 Users can view the products recorded in the inventory.
 
 ### 2. Add Products
+
 Users can add products with the required product information.
 
 ### 3. Update Stock Quantities
+
 Users can update the quantity of an existing product.
 
 ### 4. Low-Stock Warnings
+
 The application identifies products whose quantities fall below the low-stock threshold agreed upon by the team.
 
 ### 5. Input Validation
+
 The application checks product information and displays clear error messages when invalid information is entered.
 
 ## Product Information
@@ -64,9 +91,11 @@ Products will use the storage method agreed upon by the team. All features will 
 
 ## Team Responsibilities
 
-- **Member 1:** Requirements, documentation, and team coordination.
-- **Member 2:** Application setup, product listing, and product creation.
-- **Member 3:** Quantity updates, low-stock warnings, and testing.
+| Member | Role | Responsibilities |
+| --- | --- | --- |
+| **Erica Karekezi** | Team Lead | Requirements, documentation, and team coordination |
+| **Benigne Uwitonze** | Developer | Application setup, product listing, and product creation |
+| **Owen Ganza** | Developer & Tester | Quantity updates, low-stock warnings, and testing |
 
 ## Collaboration Workflow
 
