@@ -32,12 +32,28 @@ test("updates the quantity of an existing product", () => {
   const product = products[0];
   const originalQuantity = product.quantity;
 
-  const message = updateQuantity(product.id, 25);
+  try {
+    const message = updateQuantity(product.id, 25);
 
-  assert.equal(product.quantity, 25);
-  assert.equal(message, `Updated ${product.name} quantity to 25.`);
+    assert.equal(product.quantity, 25);
+    assert.equal(message, `Updated ${product.name} quantity to 25.`);
+  } finally {
+    product.quantity = originalQuantity;
+  }
+});
 
-  product.quantity = originalQuantity;
+test("allows a product quantity to be updated to zero", () => {
+  const product = products[0];
+  const originalQuantity = product.quantity;
+
+  try {
+    const message = updateQuantity(product.id, 0);
+
+    assert.equal(product.quantity, 0);
+    assert.equal(message, `Updated ${product.name} quantity to 0.`);
+  } finally {
+    product.quantity = originalQuantity;
+  }
 });
 
 test("rejects negative quantities", () => {
@@ -78,34 +94,38 @@ test("identifies a product exactly at the low-stock threshold", () => {
   const product = products[0];
   const originalQuantity = product.quantity;
 
-  updateQuantity(product.id, 20);
-
-  assert.ok(getLowStockProducts().includes(product));
-
-  product.quantity = originalQuantity;
+  try {
+    updateQuantity(product.id, 20);
+    assert.ok(getLowStockProducts().includes(product));
+  } finally {
+    product.quantity = originalQuantity;
+  }
 });
 
 test("does not identify a product above the low-stock threshold", () => {
   const product = products[0];
   const originalQuantity = product.quantity;
 
-  updateQuantity(product.id, 21);
-
-  assert.ok(!getLowStockProducts().includes(product));
-
-  product.quantity = originalQuantity;
+  try {
+    updateQuantity(product.id, 21);
+    assert.ok(!getLowStockProducts().includes(product));
+  } finally {
+    product.quantity = originalQuantity;
+  }
 });
 
 test("returns no products when all quantities are above the threshold", () => {
   const originalQuantities = products.map((product) => product.quantity);
 
-  products.forEach((product) => {
-    product.quantity = 21;
-  });
+  try {
+    products.forEach((product) => {
+      product.quantity = 21;
+    });
 
-  assert.deepEqual(getLowStockProducts(), []);
-
-  products.forEach((product, index) => {
-    product.quantity = originalQuantities[index];
-  });
+    assert.deepEqual(getLowStockProducts(), []);
+  } finally {
+    products.forEach((product, index) => {
+      product.quantity = originalQuantities[index];
+    });
+  }
 });
