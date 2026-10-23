@@ -71,3 +71,31 @@ Products will use the storage method agreed upon by the team. All features will 
 ## Collaboration Workflow
 
 Team members work on separate branches, commit their changes, and submit pull requests for review according to the repository rules.
+
+## Testing Results
+
+The automated tests are run with:
+
+```bash
+npm test
+```
+
+The test suite currently covers:
+
+- Required product fields and unique product IDs.
+- Availability of the product display function.
+- Successful updates to existing product quantities.
+- Rejection of negative quantities.
+- Rejection of non-integer quantities.
+- Rejection of unknown product IDs.
+- Low-stock detection for quantities below, exactly at, and above the threshold of 20.
+- An inventory containing products above the low-stock threshold, which returns no low-stock products.
+
+Latest test run:
+
+- Tests run: 11
+- Tests passed: 11
+- Tests failed: 0
+- Test suites failed: 0
+
+The latest test run completed successfully. This result describes that run and is not a permanent guarantee; tests should be run again after future changes. Console output from `displayProducts()` and an actually empty inventory are not directly tested yet.
