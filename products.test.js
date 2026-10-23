@@ -1,7 +1,12 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { products, displayProducts } = require("./products");
+const {
+  products,
+  displayProducts,
+  updateQuantity,
+  getLowStockProducts
+} = require("./products");
 
 test("products have the required inventory fields", () => {
   assert.ok(products.length > 0);
@@ -21,4 +26,86 @@ test("product IDs are unique", () => {
 
 test("displayProducts is a function", () => {
   assert.equal(typeof displayProducts, "function");
+});
+
+test("updates the quantity of an existing product", () => {
+  const product = products[0];
+  const originalQuantity = product.quantity;
+
+  const message = updateQuantity(product.id, 25);
+
+  assert.equal(product.quantity, 25);
+  assert.equal(message, `Updated ${product.name} quantity to 25.`);
+
+  product.quantity = originalQuantity;
+});
+
+test("rejects negative quantities", () => {
+  assert.throws(
+    () => updateQuantity(products[0].id, -1),
+    {
+      message: "Quantity must be a non-negative whole number."
+    }
+  );
+});
+
+test("rejects non-integer quantities", () => {
+  assert.throws(
+    () => updateQuantity(products[0].id, 2.5),
+    {
+      message: "Quantity must be a non-negative whole number."
+    }
+  );
+});
+
+test("rejects unknown product IDs", () => {
+  assert.throws(
+    () => updateQuantity(999, 10),
+    {
+      message: "Product not found."
+    }
+  );
+});
+
+test("identifies a product below the low-stock threshold", () => {
+  const product = products[2];
+
+  assert.equal(product.quantity, 10);
+  assert.deepEqual(getLowStockProducts(), [product]);
+});
+
+test("identifies a product exactly at the low-stock threshold", () => {
+  const product = products[0];
+  const originalQuantity = product.quantity;
+
+  updateQuantity(product.id, 20);
+
+  assert.ok(getLowStockProducts().includes(product));
+
+  product.quantity = originalQuantity;
+});
+
+test("does not identify a product above the low-stock threshold", () => {
+  const product = products[0];
+  const originalQuantity = product.quantity;
+
+  updateQuantity(product.id, 21);
+
+  assert.ok(!getLowStockProducts().includes(product));
+
+  product.quantity = originalQuantity;
+});
+
+test("returns no products when all quantities are above the threshold", () => {
+  const originalQuantities = products.map((product) => product.quantity);
+
+  products.forEach((product) => {
+    product.quantity = 21;
+  });
+
+  assert.deepEqual(getLowStockProducts(), []);
+
+  products.forEach((product, index) => {
+    product.quantity = originalQuantities[index];
+  });
 });
