@@ -184,3 +184,5 @@ The tests check product information, unique product IDs, and other inventory fun
 - If `npm` is not recognized, check that Node.js is installed and restart your terminal.
 - If a command fails, confirm that you are in the project directory containing `package.json`.
 - If tests fail, read the error output to identify which test needs attention.
+
+  Task sheet: https://docs.google.com/spreadsheets/d/1TCxL-WfICCbLBdjP55zqJglPlL9q4Nc1i03C_sfZfcA/edit?usp=sharing
