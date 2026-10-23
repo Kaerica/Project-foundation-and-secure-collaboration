@@ -99,3 +99,59 @@ Latest test run:
 - Test suites failed: 0
 
 The latest test run completed successfully. This result describes that run and is not a permanent guarantee; tests should be run again after future changes. Console output from `displayProducts()` and an actually empty inventory are not directly tested yet.
+
+## Project Setup Instructions
+
+### Prerequisites
+
+Before running the Inventory Manager, make sure you have:
+
+- [Node.js](https://nodejs.org/) installed.
+- npm, which is included with Node.js.
+- Git installed if you want to clone the project repository.
+
+### Installation
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/Kaerica/Project-foundation-and-secure-collaboration.git
+   ```
+
+2. Navigate to the project directory:
+
+   ```bash
+   cd Project-foundation-and-secure-collaboration
+   ```
+
+3. Install dependencies if the project has any listed in `package.json`:
+
+   ```bash
+   npm install
+   ```
+
+### Running the Application
+
+Start the Inventory Manager using:
+
+```bash
+npm start
+```
+
+The application displays the products currently in the inventory, including their IDs, names, prices in Rwandan francs (RWF), and quantities.
+
+### Running Tests
+
+Run the automated test suite with:
+
+```bash
+npm test
+```
+
+The tests check product information, unique product IDs, and other inventory functionality.
+
+### Troubleshooting
+
+- If `npm` is not recognized, check that Node.js is installed and restart your terminal.
+- If a command fails, confirm that you are in the project directory containing `package.json`.
+- If tests fail, read the error output to identify which test needs attention.
