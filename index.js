@@ -1,6 +1,5 @@
+const { displayProducts } = require('./products')
 
-const { displayProducts } = require("./products");
+console.log('Inventory Manager is running!')
 
-console.log("Inventory Manager is running!");
-
-displayProducts();
+displayProducts()
