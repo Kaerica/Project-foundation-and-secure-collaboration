@@ -24,6 +24,7 @@ The Inventory Manager gives these shop owners a simple digital record of their p
 - **Runtime:** Node.js
 - **Package manager:** npm
 - **Testing:** Node.js built-in test runner (`node --test`) with `node:assert`
+- **Containerization:** Docker and Docker Compose
 - **Version control & collaboration:** Git, GitHub (Projects board, pull requests, branch protection)
 
 ## Project Objectives
@@ -77,7 +78,7 @@ Each product contains the following fields:
 
 ## Product Storage
 
-Products will use the storage method agreed upon by the team. All features will use the same product structure and storage approach so that product information remains consistent.
+Products are stored in an in-memory JavaScript array. No database is currently required for this application. Product data resets when the application or its Docker container exits.
 
 ## Acceptance Criteria
 
@@ -112,7 +113,11 @@ npm test
 The test suite currently covers:
 
 - Required product fields and unique product IDs.
-- Availability of the product display function.
+- Adding products with unique IDs.
+- Trimming extra spaces from product names.
+- Rejection of empty product names.
+- Rejection of negative and invalid product prices.
+- Rejection of negative and decimal initial quantities.
 - Successful updates to existing product quantities.
 - Rejection of negative quantities.
 - Rejection of non-integer quantities.
@@ -120,14 +125,12 @@ The test suite currently covers:
 - Low-stock detection for quantities below, exactly at, and above the threshold of 20.
 - An inventory containing products above the low-stock threshold, which returns no low-stock products.
 
-Latest test run:
+Latest local test run:
 
-- Tests run: 11
-- Tests passed: 11
+- Tests run: 19
+- Tests passed: 19
 - Tests failed: 0
-- Test suites failed: 0
-
-The latest test run completed successfully. This result describes that run and is not a permanent guarantee; tests should be run again after future changes. Console output from `displayProducts()` and an actually empty inventory are not directly tested yet.
+- Tests skipped: 0
 
 ## Project Setup Instructions
 
@@ -137,6 +140,7 @@ Before running the Inventory Manager, make sure you have:
 
 - [Node.js](https://nodejs.org/) installed.
 - npm, which is included with Node.js.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running if you want to use Docker Compose.
 - Git installed if you want to clone the project repository.
 
 ### Installation
@@ -153,13 +157,13 @@ Before running the Inventory Manager, make sure you have:
    cd Project-foundation-and-secure-collaboration
    ```
 
-3. Install dependencies if the project has any listed in `package.json`:
+3. Install dependencies:
 
    ```bash
    npm install
    ```
 
-### Running the Application
+### Running the Application with Node.js
 
 Start the Inventory Manager using:
 
@@ -177,12 +181,49 @@ Run the automated test suite with:
 npm test
 ```
 
-The tests check product information, unique product IDs, and other inventory functionality.
+The tests check product information, unique product IDs, product creation, quantity updates, validation, and low-stock functionality.
+
+### Running with Docker Compose
+
+Docker Desktop must be installed and running before using Docker Compose.
+
+Docker Compose builds the application from the project's `Dockerfile` and starts the Inventory Manager with `NODE_ENV=production`.
+
+Validate the Compose configuration without starting the application:
+
+```bash
+docker compose config
+```
+
+Build the Docker image:
+
+```bash
+docker compose build
+```
+
+Start the application and view its console output:
+
+```bash
+docker compose up
+```
+
+The application is a console program, so it does not expose a web port. It does not require a database, cache, or persistent volume. It uses the default Compose network. Its current inventory is stored in memory and is reset when the container exits.
+
+Stop and remove the Compose container and network:
+
+```bash
+docker compose down
+```
+
+The `.dockerignore` file prevents unnecessary files such as `node_modules`, Git metadata, logs, local environment files, and test coverage from being sent to the Docker build context.
 
 ### Troubleshooting
 
 - If `npm` is not recognized, check that Node.js is installed and restart your terminal.
-- If a command fails, confirm that you are in the project directory containing `package.json`.
+- If Docker commands cannot connect to the Docker API, open Docker Desktop and wait until the Docker engine is running.
+- If a command fails, confirm that you are in the project directory containing `package.json`, `Dockerfile`, and `docker-compose.yml`.
 - If tests fail, read the error output to identify which test needs attention.
+- If the Docker build fails, check the Dockerfile and confirm that Docker Desktop is running.
+- If the Compose application does not print inventory output, run `docker compose logs inventory-manager`.
 
-  Task sheet: https://docs.google.com/spreadsheets/d/1TCxL-WfICCbLBdjP55zqJglPlL9q4Nc1i03C_sfZfcA/edit?usp=sharing
+Task sheet: https://docs.google.com/spreadsheets/d/1TCxL-WfICCbLBdjP55zqJglPlL9q4Nc1i03C_sfZfcA/edit?usp=sharing
