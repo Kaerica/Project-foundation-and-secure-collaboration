@@ -1,5 +1,33 @@
-const { displayProducts } = require('./products')
+const http = require('node:http')
+const { products } = require('./products')
 
-console.log('Inventory Manager is running!')
+const PORT = Number(process.env.PORT) || 3000
 
-displayProducts()
+function createServer () {
+  return http.createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json')
+
+    if (request.method === 'GET' && request.url === '/health') {
+      response.statusCode = 200
+      response.end(JSON.stringify({ status: 'ok' }))
+      return
+    }
+
+    if (request.method === 'GET' && request.url === '/') {
+      response.statusCode = 200
+      response.end(JSON.stringify({ products }))
+      return
+    }
+
+    response.statusCode = 404
+    response.end(JSON.stringify({ error: 'Not found.' }))
+  })
+}
+
+if (require.main === module) {
+  createServer().listen(PORT, () => {
+    console.log(`Inventory Manager is running on port ${PORT}.`)
+  })
+}
+
+module.exports = { createServer }

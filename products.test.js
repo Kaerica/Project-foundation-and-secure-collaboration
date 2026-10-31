@@ -1,5 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { request: httpRequest } = require('node:http')
+const { createServer } = require('./index')
 const {
   products,
   displayProducts,
@@ -186,5 +188,33 @@ test('returns no products when all quantities are above the threshold', () => {
     products.forEach((product, index) => {
       product.quantity = originalQuantities[index]
     })
+  }
+})
+
+test('health endpoint reports that the server is ready', async () => {
+  const server = createServer()
+
+  await new Promise((resolve) => server.listen(0, resolve))
+  const { port } = server.address()
+
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const request = httpRequest(
+        { hostname: '127.0.0.1', port, path: '/health' },
+        (response) => {
+          let body = ''
+          response.setEncoding('utf8')
+          response.on('data', (chunk) => { body += chunk })
+          response.on('end', () => resolve({ statusCode: response.statusCode, body }))
+        }
+      )
+      request.on('error', reject)
+      request.end()
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(JSON.parse(response.body), { status: 'ok' })
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   }
 })

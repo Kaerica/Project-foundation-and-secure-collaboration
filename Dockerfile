@@ -1,17 +1,26 @@
-# Use a slim LTS image to keep the runtime image small.
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim AS builder
 
-# Keep application files isolated from the base image filesystem.
 WORKDIR /app
 
-# Copy manifests first so dependency installation can use Docker layer caching.
-COPY package*.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 
-# Copy the application source after dependencies to preserve the cached layer.
 COPY index.js products.js ./
 
-# Run the application without root privileges.
+FROM node:22-bookworm-slim AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/index.js /app/products.js ./
+
 USER node
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/health').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["npm", "start"]
