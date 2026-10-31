@@ -187,7 +187,18 @@ The tests check product information, unique product IDs, product creation, quant
 
 Docker Desktop must be installed and running before using Docker Compose.
 
-Docker Compose builds the application from the project's `Dockerfile` and starts the Inventory Manager with `NODE_ENV=production`.
+Docker Compose builds the application from the project's `Dockerfile` and starts the Inventory Manager on port `3000`.
+Create the local environment file before starting the service:
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell, use:
+
+```powershell
+Copy-Item .env.example .env
+```
 
 Validate the Compose configuration without starting the application:
 
@@ -207,7 +218,13 @@ Start the application and view its console output:
 docker compose up
 ```
 
-The application is a console program, so it does not expose a web port. It does not require a database, cache, or persistent volume. It uses the default Compose network. Its current inventory is stored in memory and is reset when the container exits.
+The application is available at `http://localhost:3000`. The health endpoint is:
+
+```text
+http://localhost:3000/health
+```
+
+It returns `{"status":"ok"}` when the service is ready. The current inventory is stored in memory and is reset when the container exits.
 
 Stop and remove the Compose container and network:
 
@@ -224,7 +241,7 @@ The `.dockerignore` file prevents unnecessary files such as `node_modules`, Git 
 - If a command fails, confirm that you are in the project directory containing `package.json`, `Dockerfile`, and `docker-compose.yml`.
 - If tests fail, read the error output to identify which test needs attention.
 - If the Docker build fails, check the Dockerfile and confirm that Docker Desktop is running.
-- If the Compose application does not print inventory output, run `docker compose logs inventory-manager`.
+- If the health check fails, confirm that port `3000` is available and run `docker compose logs inventory-manager`.
 
 Task sheet: https://docs.google.com/spreadsheets/d/1TCxL-WfICCbLBdjP55zqJglPlL9q4Nc1i03C_sfZfcA/edit?usp=sharing
 
