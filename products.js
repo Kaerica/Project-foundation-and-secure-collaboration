@@ -101,3 +101,4 @@ module.exports = {
   updateQuantity,
   getLowStockProducts
 }
+const unusedVariable = 'breaks lint'
