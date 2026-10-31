@@ -227,3 +227,8 @@ The `.dockerignore` file prevents unnecessary files such as `node_modules`, Git 
 - If the Compose application does not print inventory output, run `docker compose logs inventory-manager`.
 
 Task sheet: https://docs.google.com/spreadsheets/d/1TCxL-WfICCbLBdjP55zqJglPlL9q4Nc1i03C_sfZfcA/edit?usp=sharing
+
+## Continuous Integration
+
+GitHub Actions automatically checks code changes by running linting,
+automated tests, and a Docker image build.
