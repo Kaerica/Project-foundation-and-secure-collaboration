@@ -1,0 +1,7 @@
+subscription_id  = "<YOUR_AZURE_SUBSCRIPTION_ID>"
+location         = "eastus2"
+environment      = "dev-eastus2"
+vm_size          = "Standard_D2ls_v6"
+admin_username   = "azureuser"
+ssh_public_key   = "<YOUR_SSH_PUBLIC_KEY>"
+allowed_ssh_cidr = "<YOUR_PUBLIC_IP>/32"
