@@ -1,0 +1,13 @@
+#cloud-config
+package_update: true
+
+packages:
+  - docker.io
+  - git
+
+runcmd:
+  - systemctl enable docker
+  - systemctl start docker
+  - git clone https://github.com/Kaerica/Project-foundation-and-secure-collaboration.git /opt/inventory
+  - docker build -t inventory-manager /opt/inventory
+  - docker run -d --restart unless-stopped -p 3000:3000 --name inventory-manager inventory-manager
