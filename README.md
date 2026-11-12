@@ -249,3 +249,13 @@ Task sheet: https://docs.google.com/spreadsheets/d/1TCxL-WfICCbLBdjP55zqJglPlL9q
 
 GitHub Actions automatically checks code changes by running linting,
 automated tests, and a Docker image build.
+
+### Security Scanning (DevSecOps)
+
+Every push and pull request also runs three security scans:
+
+- **Dependency scanning:** `npm audit` fails on HIGH or CRITICAL advisories.
+- **Container image scanning:** Trivy fails on fixable HIGH or CRITICAL vulnerabilities.
+- **IaC scanning:** Checkov scans the Terraform, the Dockerfile and the CI workflow.
+
+See [SECURITY.md](SECURITY.md) for the findings, how they were fixed, and the risks the team has accepted.
