@@ -8,7 +8,7 @@ All scans run in [.github/workflows/ci.yml](.github/workflows/ci.yml) on every p
 
 | # | Scan type | Tool | CI job / step | Failure threshold |
 |---|-----------|------|---------------|-------------------|
-| 1 | Dependency scanning | `npm audit` | `build` → *Dependency scan (npm audit)* | Fails on any **HIGH** or **CRITICAL** advisory |
+| 1 | Dependency scanning | `npm audit` | `dependency-scan` → *Dependency scan (npm audit)* | Fails on any **HIGH** or **CRITICAL** advisory |
 | 2 | Container image scanning | Trivy `0.58.1` | `build` → *Container scan (Trivy) - enforce* | Fails on **HIGH/CRITICAL** vulnerabilities **that have a fix available** (`--ignore-unfixed`) |
 | 3 | IaC / config scanning | Checkov `3.2.500` | `iac-scan` | Fails on any failed check (Terraform, Dockerfile, GitHub Actions), except the documented accepted risks |
 

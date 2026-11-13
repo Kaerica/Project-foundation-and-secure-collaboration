@@ -1,4 +1,8 @@
 name: CI Pipeline
+
+permissions:
+  contents: read
+
 on:
   push:
     branches-ignore:
@@ -8,6 +12,22 @@ on:
       - main
 
 jobs:
+  dependency-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Dependency scan (npm audit)
+        run: npm audit --audit-level=high
+
   build:
     runs-on: ubuntu-latest
 
@@ -32,3 +52,49 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t inventory-manager .
+
+      - name: Container scan (Trivy) - report
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/workspace" \
+            aquasec/trivy:0.58.1 image \
+            --format json \
+            --output /workspace/trivy-report.json \
+            inventory-manager
+
+      - name: Container scan (Trivy) - enforce
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.58.1 image \
+            --exit-code 1 \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            inventory-manager
+
+      - name: Upload full Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.json
+          if-no-files-found: warn
+
+  iac-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: IaC scan (Checkov)
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -w /repo \
+            bridgecrew/checkov:3.2.500 \
+            --directory . \
+            --framework terraform dockerfile github_actions \
+            --skip-check CKV_AZURE_50,CKV_AZURE_119 \
+            --compact
