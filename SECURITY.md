@@ -4,7 +4,7 @@ This document describes the security scanning built into the Inventory Manager C
 
 ## Security Scans in CI
 
-All scans run in [.github/workflows/ci.yml](.github/workflows/ci.yml) on every push to a non-main branch and on every pull request targeting `main`. Any scan that fails also fails the pipeline, and branch protection then blocks the merge.
+All scans run in [.github/workflows/ci.yml](.github/workflows/ci.yml) on every push to a non-main branch and on every pull request targeting `main`. If a scan fails, its CI job fails. A failing job blocks a merge into `main` only if that job is set as a required status check in branch protection (see [Branch protection](#other-security-practices)).
 
 | # | Scan type | Tool | CI job / step | Failure threshold |
 |---|-----------|------|---------------|-------------------|
@@ -89,7 +89,7 @@ See [Accepted Risks](#accepted-risks) for the reasoning.
 | ID | Risk | Why it is accepted | Mitigations / follow-up |
 |----|------|--------------------|-------------------------|
 | Trivy OS CVEs (Finding 2b) | 34 HIGH and 1 CRITICAL vulnerability in Debian base packages | Debian has **no fixed version** for any of them (`will_not_fix`, `fix_deferred` or `affected`), so rebuilding can't remove them. Most are in tools the app never calls (`mount`, `perl`, `gzip`, `ncurses`), and several (util-linux mount TOCTOU, systemd-homed) need local privileged access, which the container doesn't give: it runs as non-root `node`. The zlib CVE-2023-45853 is in `minizip`, which neither Node nor the app uses. | The CI gate fails as soon as Debian publishes a fix, because those findings then count as "fixable". The full report is uploaded on every run. Future option: move to a distroless or Alpine runtime image to remove most OS packages. |
-| CKV_AZURE_119 | The VM's network interface has a public IP | This is a single-VM student deployment with no load balancer or bastion. The public IP is the only way for Ansible to reach the VM over SSH and for users to reach the app on port 3000. | The NSG allows SSH (22) **only from `allowed_ssh_cidr`** (one `/32` admin IP). Password login is disabled (`disable_password_authentication = true`) and only key-based SSH works. Ansible applies extra SSH hardening and a host firewall. Production would use Azure Bastion and a load balancer or Application Gateway in front of a VM with no public IP. |
+| CKV_AZURE_119 | The VM's network interface has a public IP | This is a single-VM student deployment with no load balancer or bastion. The public IP is the only way for Ansible to reach the VM over SSH and for users to reach the app on port 3000. | The NSG allows SSH (22) **only from `allowed_ssh_cidr`** (one `/32` admin IP). Password login is disabled (`disable_password_authentication = true`) and only key-based SSH works. Inbound access is controlled by the Terraform Azure NSG; no host firewall is configured on the VM. Production would use Azure Bastion and a load balancer or Application Gateway in front of a VM with no public IP. |
 | CKV_AZURE_50 | VM extension operations are left enabled (Azure default) | The VM was already provisioned with this setting. Changing it now would change live infrastructure that another team member owns. Extensions can be installed only by someone with Azure RBAC rights on the resource group. | Access to the Azure subscription is limited to the team. Follow-up: set `allow_extension_operations = false` on the VM in a future Terraform change. |
 | App port 3000 open to `*` | The NSG rule `allow-application` accepts traffic from any source | The app is meant to be publicly reachable. Checkov has no rule for this, but it is recorded here for completeness. | The container runs as non-root, has a health check, and the app validates its input. Follow-up: put a reverse proxy with TLS (HTTPS on 443) in front of the app and close port 3000 to the internet. |
 
@@ -99,7 +99,7 @@ See [Accepted Risks](#accepted-risks) for the reasoning.
 - **Multi-stage build:** build tooling stays in the `builder` stage, and only the app files and production `node_modules` are copied into the runtime image.
 - **No secrets in the repository:** `.env` and `*.tfvars` are git-ignored, and only `.env.example` and `terraform.tfvars.example` with placeholders are committed.
 - **Least-privilege CI token:** the workflow's `GITHUB_TOKEN` has read-only `contents` permission.
-- **Branch protection:** `main` requires a pull request with passing CI checks before merging.
+- **Branch protection:** Changes reach `main` through pull requests. The `build` and `iac-scan` checks run on every PR, but they block merges only when they are set as required status checks under Settings → Branches.
 
 ## Running the Scans Locally
 
