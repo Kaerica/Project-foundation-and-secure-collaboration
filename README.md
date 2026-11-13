@@ -259,3 +259,18 @@ Every push and pull request also runs three security scans:
 - **IaC scanning:** Checkov scans the Terraform, the Dockerfile and the CI workflow.
 
 See [SECURITY.md](SECURITY.md) for the findings, how they were fixed, and the risks the team has accepted.
+
+## AI Use
+
+For the health endpoint and container checks in commit `d476b02`:
+
+- **Prompt topic:** Assistance with adding an HTTP health endpoint and
+  container checks.
+- **AI outputs:** Suggestions for the `/health` endpoint, Docker and Compose
+  configuration, and a health-endpoint test.
+- **Files affected:** `index.js`, `products.test.js`, `Dockerfile`,
+  `docker-compose.yml`, `.env.example`, and this README.
+- **Team modifications:** The team reviewed, adapted, and finalized the
+  suggestions.
+- **Verification:** The team ran the tests and checked the container health
+  endpoint.
