@@ -1,0 +1,178 @@
+---
+- name: Configure and deploy the Inventory Manager
+  hosts: inventory
+  become: true
+  gather_facts: true
+
+  vars:
+    application_directory: /opt/inventory
+    application_repository: https://github.com/Kaerica/Project-foundation-and-secure-collaboration.git
+    application_branch: main
+    application_container_name: inventory-manager
+
+  pre_tasks:
+    - name: Confirm the target is the provisioned Ubuntu 24.04 VM
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version("24.04", ">=")
+          - ansible_user is defined
+          - ansible_user != "root"
+        fail_msg: >-
+          This playbook expects the non-root administrator account on Ubuntu
+          24.04 or later. No changes have been made.
+
+  tasks:
+    - name: Refresh apt package metadata
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Docker, Compose, Git, and SSH server packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - docker.io
+          - docker-compose-v2
+          - git
+          - openssh-server
+        state: present
+
+    - name: Ensure Docker is enabled and running
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Ensure SSH is enabled and running
+      ansible.builtin.service:
+        name: ssh
+        state: started
+        enabled: true
+
+    - name: Check out the application source
+      ansible.builtin.git:
+        repo: "{{ application_repository }}"
+        dest: "{{ application_directory }}"
+        version: "{{ application_branch }}"
+        update: true
+        force: false
+      register: application_checkout
+
+    - name: Create the Compose environment file if it is absent
+      ansible.builtin.copy:
+        src: "{{ application_directory }}/.env.example"
+        dest: "{{ application_directory }}/.env"
+        remote_src: true
+        force: false
+        owner: root
+        group: root
+        mode: "0600"
+      register: application_environment
+
+    - name: Validate the Compose application configuration
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - config
+          - --quiet
+      args:
+        chdir: "{{ application_directory }}"
+      changed_when: false
+
+    - name: Check whether the cloud-init container is running
+      ansible.builtin.command:
+        argv:
+          - docker
+          - ps
+          - --filter
+          - "name=^/{{ application_container_name }}$"
+          - --format
+          - "{{ '{{' }}.Names{{ '}}' }}"
+      register: legacy_container
+      changed_when: false
+
+    - name: Stop the cloud-init container before Compose claims port 3000
+      ansible.builtin.command:
+        argv:
+          - docker
+          - stop
+          - "{{ application_container_name }}"
+      when: application_container_name in legacy_container.stdout_lines
+
+    - name: Check whether the Compose application service is running
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - ps
+          - --services
+          - --filter
+          - status=running
+      args:
+        chdir: "{{ application_directory }}"
+      register: compose_services
+      changed_when: false
+
+    - name: Deploy the application with the repository's Docker Compose file
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - up
+          - --detach
+          - --build
+      args:
+        chdir: "{{ application_directory }}"
+      when: >-
+        application_checkout.changed or
+        application_environment.changed or
+        compose_services.stdout_lines | length == 0
+
+    - name: Wait for the application health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:3000/health
+        method: GET
+        status_code: 200
+        return_content: true
+      register: application_health
+      retries: 12
+      delay: 5
+      until:
+        - application_health.status == 200
+        - application_health.json.status == "ok"
+
+    - name: Install SSH hardening drop-in without changing password authentication
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/60-ansible-hardening.conf
+        owner: root
+        group: root
+        mode: "0600"
+        validate: /usr/sbin/sshd -t -f %s
+        content: |
+          PubkeyAuthentication yes
+          PermitRootLogin no
+          MaxAuthTries 4
+          X11Forwarding no
+      notify: Reload SSH
+
+    - name: Validate the complete SSH server configuration before any reload
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/sshd
+          - -t
+      changed_when: false
+
+    - name: Report the existing Azure firewall ports
+      ansible.builtin.debug:
+        msg: >-
+          Terraform's NSG controls inbound access: SSH TCP/22 is restricted by
+          allowed_ssh_cidr and the application TCP/3000 is allowed. No host
+          firewall rules were changed.
+
+  handlers:
+    - name: Reload SSH
+      ansible.builtin.service:
+        name: ssh
+        state: reloaded
