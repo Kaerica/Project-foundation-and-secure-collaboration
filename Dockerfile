@@ -5,7 +5,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
-COPY index.js products.js ./
+COPY index.js products.js database.js ./
+COPY scripts ./scripts
 
 FROM node:22-bookworm-slim AS runtime
 
@@ -22,7 +23,8 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/index.js /app/products.js ./
+COPY --from=builder /app/index.js /app/products.js /app/database.js ./
+COPY --from=builder /app/scripts ./scripts
 
 USER node
 EXPOSE 3000

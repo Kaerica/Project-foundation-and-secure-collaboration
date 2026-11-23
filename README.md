@@ -23,6 +23,8 @@ The Inventory Manager gives these shop owners a simple digital record of their p
 - **Language:** JavaScript
 - **Runtime:** Node.js
 - **Package manager:** npm
+- **Database:** PostgreSQL
+- **Database client:** `pg`
 - **Testing:** Node.js built-in test runner (`node --test`) with `node:assert`
 - **Containerization:** Docker and Docker Compose
 - **Version control & collaboration:** Git, GitHub (Projects board, pull requests, branch protection)
@@ -78,7 +80,18 @@ Each product contains the following fields:
 
 ## Product Storage
 
-Products are stored in an in-memory JavaScript array. No database is currently required for this application. Product data resets when the application or its Docker container exits.
+Products are stored in PostgreSQL. On an empty database, the application creates
+the products table and seeds the example inventory. Product changes persist
+across application and container restarts.
+
+The HTTP API provides `GET /` to list products, `GET /products/low-stock` to
+list products at or below the stock threshold, `POST /products` to add a
+product, and `PATCH /products/:id/quantity` to update stock. The `/health`
+endpoint reports ready only when PostgreSQL is reachable.
+
+Create a product with `POST /products` and a JSON body containing `name`,
+`price`, and `quantity`. Update its stock with
+`PATCH /products/<id>/quantity` and a JSON body containing `quantity`.
 
 ## Acceptance Criteria
 
@@ -124,11 +137,12 @@ The test suite currently covers:
 - Rejection of unknown product IDs.
 - Low-stock detection for quantities below, exactly at, and above the threshold of 20.
 - An inventory containing products above the low-stock threshold, which returns no low-stock products.
+- Database readiness reporting, product listing and creation, quantity updates, and malformed JSON handling in the HTTP API.
 
 Latest local test run:
 
-- Tests run: 19
-- Tests passed: 19
+- Tests run: 24
+- Tests passed: 24
 - Tests failed: 0
 - Tests skipped: 0
 
@@ -165,13 +179,16 @@ Before running the Inventory Manager, make sure you have:
 
 ### Running the Application with Node.js
 
-Start the Inventory Manager using:
+The application requires a reachable PostgreSQL database. Set `PGHOST`,
+`PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE` in the environment (and set
+`PGSSL=true` for a TLS-enabled database), then start it with:
 
 ```bash
 npm start
 ```
 
-The application displays the products currently in the inventory, including their IDs, names, prices in Rwandan francs (RWF), and quantities.
+The server initializes the products table and seeds sample products if the
+database is empty.
 
 ### Running Tests
 
@@ -182,13 +199,16 @@ npm test
 ```
 
 The tests check product information, unique product IDs, product creation, quantity updates, validation, and low-stock functionality.
+To check a configured PostgreSQL database directly, run `npm run test:database`
+with the `PG*` connection variables set. CI runs this check against a temporary
+PostgreSQL service.
 
 ### Running with Docker Compose
 
 Docker Desktop must be installed and running before using Docker Compose.
 
-Docker Compose builds the application from the project's `Dockerfile` and starts the Inventory Manager on port `3000`.
-Create the local environment file before starting the service:
+Docker Compose starts the app and a local PostgreSQL database. Copy the
+development environment example before starting:
 
 ```bash
 cp .env.example .env
@@ -200,31 +220,25 @@ On Windows PowerShell, use:
 Copy-Item .env.example .env
 ```
 
-Validate the Compose configuration without starting the application:
+Validate the Compose configuration and start both services:
 
 ```bash
 docker compose config
+docker compose up --build --detach
 ```
 
-Build the Docker image:
+The application is available at `http://localhost:3000`. The health endpoint
+is:
 
-```bash
-docker compose build
+`http://localhost:3000/health` returns `{"status":"ok"}` when the app can reach
+PostgreSQL. Check the actual database connection and seeded products with:
+
+```powershell
+docker compose exec inventory-manager node scripts/check-database.js
 ```
 
-Start the application and view its console output:
-
-```bash
-docker compose up
-```
-
-The application is available at `http://localhost:3000`. The health endpoint is:
-
-```text
-http://localhost:3000/health
-```
-
-It returns `{"status":"ok"}` when the service is ready. The current inventory is stored in memory and is reset when the container exits.
+PostgreSQL data persists in the `postgres-data` Docker volume when containers
+are stopped or recreated. `docker compose down -v` also deletes that data.
 
 Stop and remove the Compose container and network:
 

@@ -3,11 +3,100 @@ package_update: true
 
 packages:
   - docker.io
-  - git
+  - postgresql-client
+  - ca-certificates
+  - curl
+  - gnupg
+
+write_files:
+  - path: /usr/local/sbin/start-inventory-manager
+    owner: root:root
+    permissions: "0700"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      export PGHOST="${postgresql_fqdn}"
+      export PGPORT="5432"
+      export PGDATABASE="${postgresql_database_name}"
+      export PGUSER="${postgresql_app_username}"
+      export PGAPP_PASSWORD="$(printf '%s' '${postgresql_app_password_b64}' | base64 --decode)"
+      export PGSSL="true"
+      PGADMIN_PASSWORD="$(printf '%s' '${postgresql_admin_password_b64}' | base64 --decode)"
+
+      until pg_isready -h "$PGHOST" -p "$PGPORT" -U "${postgresql_admin_username}" -d postgres; do
+        sleep 15
+      done
+
+      export PGPASSWORD="$PGADMIN_PASSWORD"
+      psql "host=$PGHOST port=$PGPORT dbname=postgres user=${postgresql_admin_username} sslmode=require" \
+        <<'SQL'
+      \getenv app_user PGUSER
+      \getenv app_password PGAPP_PASSWORD
+      SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
+      WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user') \gexec
+      SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'app_user', :'app_password') \gexec
+      SQL
+
+      psql "host=$PGHOST port=$PGPORT dbname=$PGDATABASE user=${postgresql_admin_username} sslmode=require" \
+        <<'SQL'
+      \getenv app_user PGUSER
+      SELECT format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'app_user') \gexec
+      SELECT format('GRANT USAGE, CREATE ON SCHEMA public TO %I', :'app_user') \gexec
+      SQL
+
+      unset PGPASSWORD
+      export PGPASSWORD="$PGAPP_PASSWORD"
+      az login --identity --allow-no-subscriptions
+
+      until az acr login --name "${container_registry_name}"; do
+        sleep 60
+      done
+
+      until docker pull "${container_registry_login_server}/inventory-manager:${container_image_tag}"; do
+        sleep 60
+      done
+
+      exec docker run --rm \
+        --name inventory-manager \
+        --publish 3000:3000 \
+        --env PGHOST \
+        --env PGPORT \
+        --env PGDATABASE \
+        --env PGUSER \
+        --env PGPASSWORD \
+        --env PGSSL \
+        "${container_registry_login_server}/inventory-manager:${container_image_tag}"
+
+  - path: /etc/systemd/system/inventory-manager.service
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Inventory Manager container
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/sbin/start-inventory-manager
+      ExecStop=/usr/bin/docker stop -t 10 inventory-manager
+      Restart=always
+      RestartSec=15
+
+      [Install]
+      WantedBy=multi-user.target
 
 runcmd:
-  - systemctl enable docker
-  - systemctl start docker
-  - git clone https://github.com/Kaerica/Project-foundation-and-secure-collaboration.git /opt/inventory
-  - docker build -t inventory-manager /opt/inventory
-  - docker run -d --restart unless-stopped -p 3000:3000 --name inventory-manager inventory-manager
+  - |
+    set -e
+    systemctl enable --now docker
+    mkdir -p /etc/apt/keyrings
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor --yes -o /etc/apt/keyrings/microsoft.gpg
+    chmod a+r /etc/apt/keyrings/microsoft.gpg
+    printf '%s\n' "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main" > /etc/apt/sources.list.d/azure-cli.list
+    apt-get update
+    apt-get install -y azure-cli
+    systemctl daemon-reload
+    systemctl enable --now inventory-manager.service
