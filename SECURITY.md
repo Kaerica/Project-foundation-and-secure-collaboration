@@ -33,7 +33,7 @@ Scans were run against the `main` branch at commit `54e4bf5` before any changes 
 |--------|--------|
 | **0 vulnerabilities** in production or development dependencies | None needed. The scan stays in CI to catch new advisories. |
 
-The application has no runtime npm dependencies. Its only dev dependency is `standard` (the linter).
+The application uses the `pg` runtime dependency to connect to PostgreSQL. Its only dev dependency is `standard` (the linter).
 
 ### 2. Container image scan (Trivy)
 
@@ -80,18 +80,18 @@ See [Accepted Risks](#accepted-risks) for the reasoning.
 |-------|----------|--------|
 | **CKV2_GHA_1**: top-level workflow permissions not restricted | `.github/workflows/ci.yml` | **FIXED**: added `permissions: contents: read` so the `GITHUB_TOKEN` is read-only |
 | **CKV_AZURE_50**: VM extensions should not be installed | `azurerm_linux_virtual_machine.inventory` | **ACCEPTED** (see below) |
-| **CKV_AZURE_119**: network interface should not use a public IP | `azurerm_network_interface.inventory` | **ACCEPTED** (see below) |
+| **CKV_AZURE_119**: network interface should not use a public IP | `azurerm_network_interface.inventory` | **FIXED**: the application VM has no public IP and is reached through Azure Bastion |
 
-**After remediation:** Terraform passes 13/13, the Dockerfile passes 53/53 and GitHub Actions passes 60/60. The 2 accepted checks are skipped explicitly in CI with `--skip-check`.
+**After the initial remediation:** Terraform passed 13/13 checks, the Dockerfile passed 53/53, and GitHub Actions passed 60/60. The infrastructure has since been redesigned. Current CI reruns Checkov and skips only the documented Azure checks that require production-tier services or don't apply to delegated-subnet PostgreSQL networking.
 
 ## Accepted Risks
 
 | ID | Risk | Why it is accepted | Mitigations / follow-up |
 |----|------|--------------------|-------------------------|
 | Trivy OS CVEs (Finding 2b) | 34 HIGH and 1 CRITICAL vulnerability in Debian base packages | Debian has **no fixed version** for any of them (`will_not_fix`, `fix_deferred` or `affected`), so rebuilding can't remove them. Most are in tools the app never calls (`mount`, `perl`, `gzip`, `ncurses`), and several (util-linux mount TOCTOU, systemd-homed) need local privileged access, which the container doesn't give: it runs as non-root `node`. The zlib CVE-2023-45853 is in `minizip`, which neither Node nor the app uses. | The CI gate fails as soon as Debian publishes a fix, because those findings then count as "fixable". The full report is uploaded on every run. Future option: move to a distroless or Alpine runtime image to remove most OS packages. |
-| CKV_AZURE_119 | The VM's network interface has a public IP | This is a single-VM student deployment with no load balancer or bastion. The public IP is the only way for Ansible to reach the VM over SSH and for users to reach the app on port 3000. | The NSG allows SSH (22) **only from `allowed_ssh_cidr`** (one `/32` admin IP). Password login is disabled (`disable_password_authentication = true`) and only key-based SSH works. Inbound access is controlled by the Terraform Azure NSG; no host firewall is configured on the VM. Production would use Azure Bastion and a load balancer or Application Gateway in front of a VM with no public IP. |
-| CKV_AZURE_50 | VM extension operations are left enabled (Azure default) | The VM was already provisioned with this setting. Changing it now would change live infrastructure that another team member owns. Extensions can be installed only by someone with Azure RBAC rights on the resource group. | Access to the Azure subscription is limited to the team. Follow-up: set `allow_extension_operations = false` on the VM in a future Terraform change. |
-| App port 3000 open to `*` | The NSG rule `allow-application` accepts traffic from any source | The app is meant to be publicly reachable. Checkov has no rule for this, but it is recorded here for completeness. | The container runs as non-root, has a health check, and the app validates its input. Follow-up: put a reverse proxy with TLS (HTTPS on 443) in front of the app and close port 3000 to the internet. |
+| CKV_AZURE_50 | VM extension operations are left enabled (Azure default) | This is retained from the existing VM configuration; changing it could affect infrastructure owned by another team member. | Password authentication is disabled. Revisit `allow_extension_operations = false` after confirming ownership and extension requirements. |
+| PostgreSQL resilience / subnet policies | Geo-redundant backup and a subnet NSG are not enabled; Checkov also expects a private endpoint | This is a single-region development stack using PostgreSQL Flexible Server's delegated-subnet private networking, not a private-link endpoint. Premium resilience and additional subnet rules were not selected for this cost-conscious student setup. | Public network access is disabled, PostgreSQL has a delegated private subnet and private DNS zone, and the application subnet NSG limits SSH to Bastion and app traffic to the VNet. Enable geo-redundant backups and review database subnet rules for production. |
+| Basic ACR capabilities | The registry uses the Basic tier, public endpoint, and single region; Checkov flags premium-only security and resilience controls | Premium private endpoints, dedicated data endpoints, zone/geo redundancy, quarantine, and advanced retention controls add cost and are outside the student assignment scope. | Registry admin access is disabled and the VM receives `AcrPull` through managed identity. The CI image scan remains enabled. Consider Premium and private networking for production. |
 
 ## Other Security Practices
 
@@ -118,7 +118,7 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 # 3. IaC scan (run from the repository root)
 docker run --rm -v "$(pwd)":/repo -w /repo bridgecrew/checkov:3.2.500 \
   --directory . --framework terraform dockerfile github_actions \
-  --skip-check CKV_AZURE_50,CKV_AZURE_119 --compact
+  --skip-check CKV_AZURE_50,CKV_AZURE_136,CKV_AZURE_166,CKV_AZURE_163,CKV_AZURE_139,CKV_AZURE_165,CKV_AZURE_167,CKV_AZURE_237,CKV_AZURE_233,CKV_AZURE_164,CKV2_AZURE_57,CKV2_AZURE_31 --compact
 ```
 
 On Git Bash for Windows, put `MSYS_NO_PATHCONV=1` in front of the `docker run` commands.

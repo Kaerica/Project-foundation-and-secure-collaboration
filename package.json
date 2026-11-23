@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "test": "node --test",
+    "test:database": "node scripts/check-database.js",
     "lint": "standard"
   },
   "repository": {
@@ -25,5 +26,8 @@
   "homepage": "https://github.com/Kaerica/Project-foundation-and-secure-collaboration#readme",
   "devDependencies": {
     "standard": "^17.1.2"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
   }
 }

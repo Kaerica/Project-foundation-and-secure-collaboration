@@ -1,5 +1,11 @@
 # Ansible configuration and deployment
 
+> **Legacy deployment:** This playbook targets the earlier public-IP VM and
+> Docker Compose architecture. The current Terraform stack uses a private VM,
+> Azure Bastion, a systemd-managed ACR image, and managed PostgreSQL. Do not run
+> this playbook against the current stack; it would conflict with the deployed
+> container and database configuration.
+
 This playbook configures the Azure Ubuntu VM provisioned by `terraform/` and
 deploys the Inventory Manager using the repository's existing Docker Compose
 configuration.

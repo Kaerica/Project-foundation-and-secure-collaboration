@@ -191,30 +191,118 @@ test('returns no products when all quantities are above the threshold', () => {
   }
 })
 
-test('health endpoint reports that the server is ready', async () => {
-  const server = createServer()
+test('health endpoint reports readiness only when the database is reachable', async () => {
+  const readyResponse = await requestServer('/health', {
+    checkConnection: async () => {}
+  })
+  const unavailableResponse = await requestServer('/health', {
+    checkConnection: async () => { throw new Error('connection refused') }
+  })
 
+  assert.equal(readyResponse.statusCode, 200)
+  assert.deepEqual(JSON.parse(readyResponse.body), { status: 'ok' })
+  assert.equal(unavailableResponse.statusCode, 503)
+  assert.deepEqual(JSON.parse(unavailableResponse.body), {
+    status: 'error',
+    error: 'Database unavailable.'
+  })
+})
+
+test('GET / returns products from the database store', async () => {
+  const response = await requestServer('/', {
+    listProducts: async () => [products[0]]
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(JSON.parse(response.body), { products: [products[0]] })
+})
+
+test('POST /products persists a product through the database store', async () => {
+  let addedProduct
+  const response = await requestServer('/products', {
+    addProduct: async (name, price, quantity) => {
+      addedProduct = { id: 4, name, price, quantity }
+      return addedProduct
+    }
+  }, {
+    method: 'POST',
+    body: { name: 'Pencil', price: 300, quantity: 40 }
+  })
+
+  assert.equal(response.statusCode, 201)
+  assert.deepEqual(addedProduct, { id: 4, name: 'Pencil', price: 300, quantity: 40 })
+  assert.deepEqual(JSON.parse(response.body), { product: addedProduct })
+})
+
+test('POST /products rejects malformed JSON', async () => {
+  const response = await requestServer('/products', {}, {
+    method: 'POST',
+    rawBody: '{'
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(JSON.parse(response.body), {
+    error: 'Request body must be a valid JSON object.'
+  })
+})
+
+test('PATCH /products/:id/quantity updates the stored quantity', async () => {
+  let updated
+  const response = await requestServer('/products/3/quantity', {
+    updateQuantity: async (id, quantity) => {
+      updated = { id, quantity }
+      return 'Updated School Bag quantity to 12.'
+    }
+  }, {
+    method: 'PATCH',
+    body: { quantity: 12 }
+  })
+
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(updated, { id: 3, quantity: 12 })
+  assert.deepEqual(JSON.parse(response.body), {
+    message: 'Updated School Bag quantity to 12.'
+  })
+})
+
+async function requestServer (path, storeOverrides, options = {}) {
+  const productStore = {
+    checkConnection: async () => {},
+    listProducts: async () => products,
+    addProduct: async () => {},
+    updateQuantity: async () => {},
+    getLowStockProducts: async () => [],
+    ...storeOverrides
+  }
+  const server = createServer({ productStore })
   await new Promise((resolve) => server.listen(0, resolve))
-  const { port } = server.address()
 
   try {
-    const response = await new Promise((resolve, reject) => {
-      const request = httpRequest(
-        { hostname: '127.0.0.1', port, path: '/health' },
-        (response) => {
-          let body = ''
-          response.setEncoding('utf8')
-          response.on('data', (chunk) => { body += chunk })
-          response.on('end', () => resolve({ statusCode: response.statusCode, body }))
-        }
-      )
+    const { port } = server.address()
+    return await new Promise((resolve, reject) => {
+      const request = httpRequest({
+        hostname: '127.0.0.1',
+        port,
+        path,
+        method: options.method || 'GET',
+        headers: options.body || options.rawBody
+          ? { 'Content-Type': 'application/json' }
+          : undefined
+      }, (response) => {
+        let body = ''
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => { body += chunk })
+        response.on('end', () => resolve({
+          statusCode: response.statusCode,
+          body
+        }))
+      })
       request.on('error', reject)
-      request.end()
+      request.end(options.rawBody || (options.body && JSON.stringify(options.body)))
     })
-
-    assert.equal(response.statusCode, 200)
-    assert.deepEqual(JSON.parse(response.body), { status: 'ok' })
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+    await new Promise((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve())
+    })
   }
-})
+}

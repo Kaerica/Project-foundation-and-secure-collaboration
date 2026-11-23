@@ -43,17 +43,7 @@ function displayProducts () {
 }
 
 function addProduct (name, price, quantity) {
-  if (typeof name !== 'string' || name.trim() === '') {
-    throw new Error('Product name must not be empty.')
-  }
-
-  if (typeof price !== 'number' || !Number.isFinite(price) || price < 0) {
-    throw new Error('Price must be a non-negative number.')
-  }
-
-  if (!Number.isInteger(quantity) || quantity < 0) {
-    throw new Error('Quantity must be a non-negative whole number.')
-  }
+  validateProduct(name, price, quantity)
 
   const nextId =
     products.length === 0
@@ -79,13 +69,29 @@ function updateQuantity (productId, newQuantity) {
     throw new Error('Product not found.')
   }
 
-  if (!Number.isInteger(newQuantity) || newQuantity < 0) {
-    throw new Error('Quantity must be a non-negative whole number.')
-  }
+  validateQuantity(newQuantity)
 
   product.quantity = newQuantity
 
   return `Updated ${product.name} quantity to ${product.quantity}.`
+}
+
+function validateProduct (name, price, quantity) {
+  if (typeof name !== 'string' || name.trim() === '') {
+    throw new Error('Product name must not be empty.')
+  }
+
+  if (typeof price !== 'number' || !Number.isFinite(price) || price < 0) {
+    throw new Error('Price must be a non-negative number.')
+  }
+
+  validateQuantity(quantity)
+}
+
+function validateQuantity (quantity) {
+  if (!Number.isInteger(quantity) || quantity < 0) {
+    throw new Error('Quantity must be a non-negative whole number.')
+  }
 }
 
 function getLowStockProducts () {
@@ -99,5 +105,7 @@ module.exports = {
   displayProducts,
   addProduct,
   updateQuantity,
-  getLowStockProducts
+  getLowStockProducts,
+  validateProduct,
+  validateQuantity
 }
