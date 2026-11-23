@@ -30,15 +30,17 @@ write_files:
 
       export PGPASSWORD="$PGADMIN_PASSWORD"
       psql "host=$PGHOST port=$PGPORT dbname=postgres user=${postgresql_admin_username} sslmode=require" \
-        --set=app_user="$PGUSER" \
-        --set=app_password="$PGAPP_PASSWORD" <<'SQL'
+        <<'SQL'
+      \getenv app_user PGUSER
+      \getenv app_password PGAPP_PASSWORD
       SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
       WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user') \gexec
       SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'app_user', :'app_password') \gexec
       SQL
 
       psql "host=$PGHOST port=$PGPORT dbname=$PGDATABASE user=${postgresql_admin_username} sslmode=require" \
-        --set=app_user="$PGUSER" <<'SQL'
+        <<'SQL'
+      \getenv app_user PGUSER
       SELECT format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'app_user') \gexec
       SELECT format('GRANT USAGE, CREATE ON SCHEMA public TO %I', :'app_user') \gexec
       SQL

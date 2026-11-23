@@ -59,6 +59,65 @@ resource "azurerm_subnet" "database" {
   }
 }
 
+resource "azurerm_network_security_group" "database" {
+  name                = "nsg-inventory-db-${var.environment}"
+  location            = azurerm_resource_group.inventory.location
+  resource_group_name = azurerm_resource_group.inventory.name
+
+  security_rule {
+    name                       = "allow-postgresql-from-application"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "5432"
+    source_address_prefix      = azurerm_subnet.application.address_prefixes[0]
+    destination_address_prefix = azurerm_subnet.database.address_prefixes[0]
+  }
+
+  security_rule {
+    name                       = "allow-postgresql-subnet-internal"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "5432"
+    source_address_prefix      = azurerm_subnet.database.address_prefixes[0]
+    destination_address_prefix = azurerm_subnet.database.address_prefixes[0]
+  }
+
+  security_rule {
+    name                       = "allow-postgresql-to-storage"
+    priority                   = 100
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = azurerm_subnet.database.address_prefixes[0]
+    destination_address_prefix = "Storage"
+  }
+
+  security_rule {
+    name                       = "allow-postgresql-subnet-internal-outbound"
+    priority                   = 110
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "5432"
+    source_address_prefix      = azurerm_subnet.database.address_prefixes[0]
+    destination_address_prefix = azurerm_subnet.database.address_prefixes[0]
+  }
+}
+
+resource "azurerm_subnet_network_security_group_association" "database" {
+  subnet_id                 = azurerm_subnet.database.id
+  network_security_group_id = azurerm_network_security_group.database.id
+}
+
 resource "azurerm_public_ip" "bastion" {
   name                = "pip-bastion-${var.environment}"
   location            = azurerm_resource_group.inventory.location
@@ -160,6 +219,7 @@ resource "azurerm_linux_virtual_machine" "inventory" {
   admin_username      = var.admin_username
 
   disable_password_authentication = true
+  allow_extension_operations      = false
 
   network_interface_ids = [
     azurerm_network_interface.inventory.id
@@ -235,6 +295,7 @@ resource "azurerm_postgresql_flexible_server" "inventory" {
 
   depends_on = [
     azurerm_private_dns_zone_virtual_network_link.postgresql,
+    azurerm_subnet_network_security_group_association.database,
   ]
 }
 

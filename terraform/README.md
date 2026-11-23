@@ -12,7 +12,8 @@ provides SSH access without assigning a public IP to the VM.
 - Delegated PostgreSQL subnet, private DNS zone, and private Azure Database for
   PostgreSQL Flexible Server.
 - Basic Azure Container Registry with its admin account disabled. The VM's
-  managed identity receives the `AcrPull` role.
+  managed identity receives the `AcrPull` role. This tier uses a public
+  registry endpoint and does **not** satisfy a private-registry requirement.
 
 The application stores inventory in PostgreSQL. The VM's systemd service uses
 its managed identity to pull the `inventory-manager` image from ACR and connects
@@ -86,6 +87,16 @@ docker push $image
 The VM uses its managed identity to pull the image. No registry admin password
 is enabled or needed. The local Compose stack can exercise the same database
 integration using PostgreSQL in Docker; see the repository README.
+
+### Private registry limitation
+
+This student/development configuration currently uses Basic ACR with public
+network access enabled. It is not a private registry. Azure Private Link for
+ACR requires the Premium tier, adds recurring cost, and requires image pushes
+from a client with private network access (or an approved private build
+runner). Do not treat the current `docker push` instructions as a private
+registry workflow. The Premium/Private Link design and publishing path require
+team approval before changing this configuration.
 
 ## Destroy
 
