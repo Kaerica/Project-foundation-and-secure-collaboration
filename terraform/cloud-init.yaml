@@ -9,12 +9,23 @@ packages:
   - gnupg
 
 write_files:
+  - path: /etc/inventory-manager.env
+    owner: root:root
+    permissions: "0600"
+    content: |
+      CONTAINER_REGISTRY_LOGIN_SERVER=${container_registry_login_server}
+      CONTAINER_IMAGE_TAG=${container_image_tag}
+      CONTAINER_REGISTRY_NAME=${container_registry_name}
+
   - path: /usr/local/sbin/start-inventory-manager
     owner: root:root
     permissions: "0700"
     content: |
       #!/bin/bash
       set -euo pipefail
+      set -a
+      source /etc/inventory-manager.env
+      set +a
 
       export PGHOST="${postgresql_fqdn}"
       export PGPORT="5432"
@@ -49,11 +60,11 @@ write_files:
       export PGPASSWORD="$PGAPP_PASSWORD"
       az login --identity --allow-no-subscriptions
 
-      until az acr login --name "${container_registry_name}"; do
+      until az acr login --name "$CONTAINER_REGISTRY_NAME"; do
         sleep 60
       done
 
-      until docker pull "${container_registry_login_server}/inventory-manager:${container_image_tag}"; do
+      until docker pull "$CONTAINER_REGISTRY_LOGIN_SERVER/inventory-manager:$CONTAINER_IMAGE_TAG"; do
         sleep 60
       done
 
@@ -66,7 +77,7 @@ write_files:
         --env PGUSER \
         --env PGPASSWORD \
         --env PGSSL \
-        "${container_registry_login_server}/inventory-manager:${container_image_tag}"
+        "$CONTAINER_REGISTRY_LOGIN_SERVER/inventory-manager:$CONTAINER_IMAGE_TAG"
 
   - path: /etc/systemd/system/inventory-manager.service
     owner: root:root

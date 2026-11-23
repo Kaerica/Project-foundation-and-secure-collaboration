@@ -96,7 +96,7 @@ variable "container_registry_name" {
 }
 
 variable "container_image_tag" {
-  description = "Tag for the Inventory Manager image pulled by the VM"
+  description = "Initial/bootstrap tag for the Inventory Manager image pulled by the VM; CD deployments pass an explicit Git SHA tag through Ansible"
   type        = string
   default     = "latest"
 

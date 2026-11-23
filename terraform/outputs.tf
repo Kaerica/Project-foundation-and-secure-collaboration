@@ -8,9 +8,19 @@ output "bastion_public_ip_address" {
   value       = azurerm_public_ip.bastion.ip_address
 }
 
+output "bastion_name" {
+  description = "Azure Bastion host name"
+  value       = azurerm_bastion_host.inventory.name
+}
+
 output "application_private_ip_address" {
   description = "Private IP address of the application VM"
   value       = azurerm_network_interface.inventory.private_ip_address
+}
+
+output "vm_admin_username" {
+  description = "Application VM administrator username"
+  value       = var.admin_username
 }
 
 output "postgresql_fqdn" {

@@ -274,6 +274,24 @@ Every push and pull request also runs three security scans:
 
 See [SECURITY.md](SECURITY.md) for the findings, how they were fixed, and the risks the team has accepted.
 
+## Continuous Deployment
+
+GitHub Actions deploys a merged `main` branch through
+[`.github/workflows/cd.yml`](.github/workflows/cd.yml). The workflow builds the
+image, pushes the Git SHA tag to Azure Container Registry,
+opens Azure Bastion, and runs the Ansible playbook over a local SSH tunnel.
+The Git SHA identifies the build commit, but SHA tags are not automatically
+immutable. Registry-level immutability requires separate ACR configuration.
+
+Ansible updates `/etc/inventory-manager.env` on the private application VM and
+compares the desired image ID with the running container ID. It restarts
+`inventory-manager` only when the deployment environment, image ID, or systemd
+service state requires it. The VM pulls images through its managed identity and
+AcrPull role; registry administrator credentials are not stored on the VM.
+
+The deployment requires the Azure and Bastion secrets documented in
+[`ansible/README.md`](ansible/README.md).
+
 ## AI Use
 
 For the health endpoint and container checks in commit `d476b02`:
