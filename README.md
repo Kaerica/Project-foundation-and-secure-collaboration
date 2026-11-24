@@ -266,7 +266,8 @@ automated tests, and a Docker image build.
 
 ### Security Scanning (DevSecOps)
 
-Every push and pull request also runs three security scans:
+Every push to a non-main branch and every pull request targeting `main` runs
+three security scans:
 
 - **Dependency scanning:** `npm audit` fails on HIGH or CRITICAL advisories.
 - **Container image scanning:** Trivy fails on fixable HIGH or CRITICAL vulnerabilities.
