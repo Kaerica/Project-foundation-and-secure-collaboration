@@ -72,25 +72,15 @@ PostgreSQL is private-only; its hostname is available from
 `terraform output postgresql_fqdn`. The registry login server is available from
 `terraform output container_registry_login_server`.
 
-After cloud-init completes, connect to the VM through Bastion and verify the
-systemd service and database-backed health endpoint:
-
-```bash
-sudo systemctl is-active inventory-manager.service
-curl --fail --show-error http://127.0.0.1:3000/health
-```
-
-The health request should return `{"status":"ok"}`. Run it on the VM because no
-public web ingress is currently provisioned; the endpoint is reachable only
-from the VM or an allowed network inside the VNet.
-
-Build and push the application image after the registry is created. The VM
-service retries the pull until this image is available:
+Build and push an initial application image after the registry is created. The
+VM service retries the pull until this image is available. Use a commit SHA or
+another approved deployment tag for repeatable manual deployments:
 
 ```powershell
 $registryName = terraform -chdir=terraform output -raw container_registry_name
 $registryServer = terraform -chdir=terraform output -raw container_registry_login_server
-$image = "${registryServer}/inventory-manager:latest"
+$imageTag = "<GIT_SHA_OR_COMMIT_TAG>"
+$image = "${registryServer}/inventory-manager:${imageTag}"
 docker build -t $image .
 az acr login --name $registryName
 docker push $image
@@ -99,6 +89,17 @@ docker push $image
 The VM uses its managed identity to pull the image. No registry admin password
 is enabled or needed. The local Compose stack can exercise the same database
 integration using PostgreSQL in Docker; see the repository README.
+
+GitHub Actions CD publishes and deploys the current commit SHA. The workflow
+does not use `latest` as the deployment identity, and a Git SHA tag is not
+automatically immutable; ACR tag immutability requires separate configuration.
+
+The native Bastion SSH tunnel is a live deployment prerequisite. The current
+Terraform configuration uses Basic Bastion, while the CD workflow requires a
+compatible Standard or Premium Bastion with native client tunnelling enabled
+(`enableTunneling=true`). Do not change the SKU or enable tunnelling without
+the team's explicit infrastructure and cost approval. Deployment has not been
+verified against Azure.
 
 ### Private registry limitation
 

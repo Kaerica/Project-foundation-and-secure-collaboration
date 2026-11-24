@@ -1,43 +1,23 @@
 ---
-- name: Configure and deploy the Inventory Manager
+- name: Deploy the Inventory Manager through Azure Bastion
   hosts: inventory
   become: true
   gather_facts: true
 
   vars:
-    application_directory: /opt/inventory
-    application_repository: https://github.com/Kaerica/Project-foundation-and-secure-collaboration.git
-    application_branch: main
-    application_container_name: inventory-manager
+    desired_image: "{{ container_registry_login_server }}/inventory-manager:{{ container_image_tag }}"
 
   pre_tasks:
-    - name: Confirm the target is the provisioned Ubuntu 24.04 VM
+    - name: Validate deployment variables
       ansible.builtin.assert:
         that:
+          - container_registry_name | default("") | length > 0
+          - container_registry_login_server | default("") | length > 0
+          - container_image_tag | default("") | length > 0
           - ansible_distribution == "Ubuntu"
           - ansible_distribution_version is version("24.04", ">=")
-          - ansible_user is defined
-          - ansible_user != "root"
-        fail_msg: >-
-          This playbook expects the non-root administrator account on Ubuntu
-          24.04 or later. No changes have been made.
 
   tasks:
-    - name: Refresh apt package metadata
-      ansible.builtin.apt:
-        update_cache: true
-        cache_valid_time: 3600
-
-    - name: Install Docker, Compose, Git, and SSH server packages
-      ansible.builtin.apt:
-        name:
-          - ca-certificates
-          - docker.io
-          - docker-compose-v2
-          - git
-          - openssh-server
-        state: present
-
     - name: Ensure Docker is enabled and running
       ansible.builtin.service:
         name: docker
@@ -50,85 +30,101 @@
         state: started
         enabled: true
 
-    - name: Check out the application source
-      ansible.builtin.git:
-        repo: "{{ application_repository }}"
-        dest: "{{ application_directory }}"
-        version: "{{ application_branch }}"
-        update: true
-        force: false
-      register: application_checkout
+    - name: Authenticate Azure CLI with the VM managed identity
+      ansible.builtin.command:
+        argv:
+          - az
+          - login
+          - --identity
+          - --allow-no-subscriptions
+      changed_when: false
 
-    - name: Create the Compose environment file if it is absent
+    - name: Authenticate Docker with ACR
+      ansible.builtin.command:
+        argv:
+          - az
+          - acr
+          - login
+          - --name
+          - "{{ container_registry_name }}"
+      changed_when: false
+
+    - name: Store the desired container image tag
       ansible.builtin.copy:
-        src: "{{ application_directory }}/.env.example"
-        dest: "{{ application_directory }}/.env"
-        remote_src: true
-        force: false
+        dest: /etc/inventory-manager.env
         owner: root
         group: root
         mode: "0600"
-      register: application_environment
+        content: |
+          CONTAINER_REGISTRY_LOGIN_SERVER={{ container_registry_login_server }}
+          CONTAINER_IMAGE_TAG={{ container_image_tag }}
+          CONTAINER_REGISTRY_NAME={{ container_registry_name }}
+      register: deployment_environment
 
-    - name: Validate the Compose application configuration
+    - name: Pull the desired container image
       ansible.builtin.command:
         argv:
           - docker
-          - compose
-          - config
-          - --quiet
-      args:
-        chdir: "{{ application_directory }}"
+          - pull
+          - "{{ desired_image }}"
       changed_when: false
 
-    - name: Check whether the cloud-init container is running
+    - name: Inspect the desired container image ID
       ansible.builtin.command:
         argv:
           - docker
-          - ps
-          - --filter
-          - "name=^/{{ application_container_name }}$"
+          - image
+          - inspect
           - --format
-          - "{{ '{{' }}.Names{{ '}}' }}"
-      register: legacy_container
+          - "{{ '{{' }}.Id{{ '}}' }}"
+          - "{{ desired_image }}"
+      register: desired_image_id
       changed_when: false
 
-    - name: Stop the cloud-init container before Compose claims port 3000
+    - name: Inspect the currently running container image ID
       ansible.builtin.command:
         argv:
           - docker
-          - stop
-          - "{{ application_container_name }}"
-      when: application_container_name in legacy_container.stdout_lines
-
-    - name: Check whether the Compose application service is running
-      ansible.builtin.command:
-        argv:
-          - docker
-          - compose
-          - ps
-          - --services
-          - --filter
-          - status=running
-      args:
-        chdir: "{{ application_directory }}"
-      register: compose_services
+          - inspect
+          - --format
+          - "{{ '{{' }}.Image{{ '}}' }}"
+          - inventory-manager
+      register: running_image_id
       changed_when: false
+      failed_when: false
 
-    - name: Deploy the application with the repository's Docker Compose file
+    - name: Fail when Docker container inspection reports an unexpected error
+      ansible.builtin.fail:
+        msg: >-
+          Docker failed to inspect inventory-manager unexpectedly:
+          {{ running_image_id.stderr | default(running_image_id.msg | default('unknown Docker error'), true) }}
+      when:
+        - running_image_id.rc != 0
+        - "'no such container' not in (running_image_id.stderr | default('') | lower)"
+        - "'no such object' not in (running_image_id.stderr | default('') | lower)"
+
+    - name: Check whether the inventory-manager systemd service is active
       ansible.builtin.command:
         argv:
-          - docker
-          - compose
-          - up
-          - --detach
-          - --build
-      args:
-        chdir: "{{ application_directory }}"
-      when: >-
-        application_checkout.changed or
-        application_environment.changed or
-        compose_services.stdout_lines | length == 0
+          - /bin/systemctl
+          - is-active
+          - inventory-manager
+      register: inventory_service_status
+      changed_when: false
+      failed_when: false
+
+    - name: Restart the managed systemd application when its image or environment changes
+      ansible.builtin.systemd:
+        name: inventory-manager
+        state: restarted
+        daemon_reload: true
+        enabled: true
+      when:
+        - >-
+          inventory_service_status.rc != 0 or
+          deployment_environment.changed or
+          running_image_id.rc != 0 or
+          running_image_id.stdout != desired_image_id.stdout
 
     - name: Wait for the application health endpoint
       ansible.builtin.uri:
@@ -143,7 +139,7 @@
         - application_health.status == 200
         - application_health.json.status == "ok"
 
-    - name: Install SSH hardening drop-in without changing password authentication
+    - name: Install SSH hardening drop-in with public-key authentication preserved
       ansible.builtin.copy:
         dest: /etc/ssh/sshd_config.d/60-ansible-hardening.conf
         owner: root
@@ -157,19 +153,12 @@
           X11Forwarding no
       notify: Reload SSH
 
-    - name: Validate the complete SSH server configuration before any reload
+    - name: Validate the complete SSH server configuration before reload
       ansible.builtin.command:
         argv:
           - /usr/sbin/sshd
           - -t
       changed_when: false
-
-    - name: Report the existing Azure firewall ports
-      ansible.builtin.debug:
-        msg: >-
-          Terraform's NSG controls inbound access: SSH TCP/22 is restricted by
-          allowed_ssh_cidr and the application TCP/3000 is allowed. No host
-          firewall rules were changed.
 
   handlers:
     - name: Reload SSH

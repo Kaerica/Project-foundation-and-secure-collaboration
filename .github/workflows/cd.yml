@@ -1,0 +1,273 @@
+name: Continuous Deployment
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: inventory-manager-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible
+        run: python -m pip install --disable-pip-version-check ansible-core
+
+      - name: Validate deployment prerequisites
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_BASTION_NAME: ${{ secrets.AZURE_BASTION_NAME }}
+          AZURE_VM_RESOURCE_ID: ${{ secrets.AZURE_VM_RESOURCE_ID }}
+          AZURE_VM_ADMIN_USERNAME: ${{ secrets.AZURE_VM_ADMIN_USERNAME }}
+          AZURE_VM_SSH_PRIVATE_KEY: ${{ secrets.AZURE_VM_SSH_PRIVATE_KEY }}
+          AZURE_VM_SSH_HOST_KEY: ${{ secrets.AZURE_VM_SSH_HOST_KEY }}
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for item in \
+            "AZURE_CREDENTIALS=$AZURE_CREDENTIALS" \
+            "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP" \
+            "AZURE_BASTION_NAME=$AZURE_BASTION_NAME" \
+            "AZURE_VM_RESOURCE_ID=$AZURE_VM_RESOURCE_ID" \
+            "AZURE_VM_ADMIN_USERNAME=$AZURE_VM_ADMIN_USERNAME" \
+            "AZURE_VM_SSH_PRIVATE_KEY=$AZURE_VM_SSH_PRIVATE_KEY" \
+            "AZURE_VM_SSH_HOST_KEY=$AZURE_VM_SSH_HOST_KEY" \
+            "ACR_NAME=$ACR_NAME"; do
+            name="${item%%=*}"
+            value="${item#*=}"
+            if [ -z "$value" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Missing CD prerequisites:"
+            printf '  - %s\n' "${missing[@]}"
+            echo "Configure the listed GitHub Actions secrets before this deployment can run."
+            exit 1
+          fi
+
+          if [[ "$AZURE_VM_SSH_HOST_KEY" != "[127.0.0.1]:2222 "* ]]; then
+            echo "Invalid AZURE_VM_SSH_HOST_KEY format: it must be a complete known_hosts entry starting with '[127.0.0.1]:2222 '."
+            exit 1
+          fi
+
+          key_path="$RUNNER_TEMP/ansible-cd-key-validation"
+          printf '%s\n' "$AZURE_VM_SSH_PRIVATE_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          if ! ssh-keygen -y -f "$key_path" >/dev/null 2>&1; then
+            echo "Invalid AZURE_VM_SSH_PRIVATE_KEY: the value is not a valid private SSH key."
+            rm -f "$key_path"
+            exit 1
+          fi
+          rm -f "$key_path"
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure Bastion CLI extension
+        run: az extension add --name bastion --yes
+
+      - name: Validate Azure deployment prerequisites
+        id: azure-prerequisites
+        env:
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_BASTION_NAME: ${{ secrets.AZURE_BASTION_NAME }}
+          AZURE_VM_RESOURCE_ID: ${{ secrets.AZURE_VM_RESOURCE_ID }}
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          set -euo pipefail
+
+          if ! az group show --name "$AZURE_RESOURCE_GROUP" --query id -o tsv >/dev/null; then
+            echo "Deployment prerequisite missing — Azure resource group '$AZURE_RESOURCE_GROUP' does not exist or is inaccessible."
+            exit 1
+          fi
+
+          if ! az vm show --ids "$AZURE_VM_RESOURCE_ID" --query id -o tsv >/dev/null; then
+            echo "Deployment prerequisite missing — application VM '$AZURE_VM_RESOURCE_ID' does not exist or is inaccessible."
+            exit 1
+          fi
+
+          if ! acr_login_server="$(az acr show \
+            --name "$ACR_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query loginServer -o tsv)"; then
+            echo "Deployment prerequisite missing: ACR '$ACR_NAME' does not exist or is inaccessible."
+            exit 1
+          fi
+          if [ -z "$acr_login_server" ]; then
+            echo "Deployment prerequisite missing: ACR '$ACR_NAME' did not return a login server."
+            exit 1
+          fi
+          echo "acr_login_server=$acr_login_server" >> "$GITHUB_OUTPUT"
+
+          if ! bastion_sku="$(az network bastion show \
+            --name "$AZURE_BASTION_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'sku.name' -o tsv)"; then
+            echo "Deployment prerequisite missing: Azure Bastion '$AZURE_BASTION_NAME' does not exist or is inaccessible."
+            exit 1
+          fi
+
+          case "$bastion_sku" in
+            Standard|Premium)
+              ;;
+            Basic)
+              echo "Deployment blocker: Azure Bastion '$AZURE_BASTION_NAME' uses the Basic SKU. Native client tunnelling is not supported by this configuration."
+              echo "The current infrastructure must not be changed or upgraded without approval."
+              exit 1
+              ;;
+            *)
+              echo "Deployment blocker: Azure Bastion '$AZURE_BASTION_NAME' uses unsupported SKU '$bastion_sku'. Native client tunnelling requires Standard or Premium."
+              echo "The current infrastructure must not be changed or upgraded without approval."
+              exit 1
+              ;;
+          esac
+
+          if ! bastion_enable_tunneling="$(az network bastion show \
+            --name "$AZURE_BASTION_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'enableTunneling' -o tsv)"; then
+            echo "Deployment prerequisite missing: Azure could not verify native client tunnelling for Bastion '$AZURE_BASTION_NAME'."
+            exit 1
+          fi
+
+          if [ -z "$bastion_enable_tunneling" ] || [ "$bastion_enable_tunneling" != "true" ]; then
+            echo "Deployment blocker: native client tunnelling is disabled or could not be verified for Azure Bastion '$AZURE_BASTION_NAME'."
+            echo "The enableTunneling setting must be approved and enabled before this workflow can deploy."
+            exit 1
+          fi
+
+      - name: Build and push SHA-tagged ACR image
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+          ACR_LOGIN_SERVER: ${{ steps.azure-prerequisites.outputs.acr_login_server }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          az acr login --name "$ACR_NAME"
+          docker build -t "inventory-manager:$IMAGE_TAG" .
+          docker tag "inventory-manager:$IMAGE_TAG" "$ACR_LOGIN_SERVER/inventory-manager:$IMAGE_TAG"
+          docker push "$ACR_LOGIN_SERVER/inventory-manager:$IMAGE_TAG"
+
+      - name: Write VM SSH private key
+        env:
+          VM_SSH_PRIVATE_KEY: ${{ secrets.AZURE_VM_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > "$HOME/.ssh/ansible_cd"
+          chmod 600 "$HOME/.ssh/ansible_cd"
+
+      - name: Open Azure Bastion tunnel
+        env:
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_BASTION_NAME: ${{ secrets.AZURE_BASTION_NAME }}
+          AZURE_VM_RESOURCE_ID: ${{ secrets.AZURE_VM_RESOURCE_ID }}
+          AZURE_VM_SSH_HOST_KEY: ${{ secrets.AZURE_VM_SSH_HOST_KEY }}
+          VM_ADMIN_USERNAME: ${{ secrets.AZURE_VM_ADMIN_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AZURE_VM_SSH_HOST_KEY:-}" ]; then
+            echo "Missing prerequisite: AZURE_VM_SSH_HOST_KEY must contain the trusted SSH host key for the application VM."
+            echo "Obtain it from the VM administrator or a verified existing connection; do not disable host-key checking."
+            exit 1
+          fi
+
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$AZURE_VM_SSH_HOST_KEY" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          az network bastion tunnel \
+            --name "$AZURE_BASTION_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --target-resource-id "$AZURE_VM_RESOURCE_ID" \
+            --resource-port 22 \
+            --port 2222 >"$HOME/bastion-tunnel.log" 2>&1 &
+          echo $! > "$HOME/bastion-tunnel.pid"
+
+          tunnel_ready=false
+          for attempt in $(seq 1 30); do
+            if ! kill -0 "$(cat "$HOME/bastion-tunnel.pid")" 2>/dev/null; then
+              echo "The Azure Bastion tunnel process exited before SSH became ready."
+              cat "$HOME/bastion-tunnel.log"
+              exit 1
+            fi
+
+            if ssh \
+              -i "$HOME/.ssh/ansible_cd" \
+              -p 2222 \
+              -o BatchMode=yes \
+              -o ConnectTimeout=5 \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              "$VM_ADMIN_USERNAME@127.0.0.1" \
+              /bin/true 2>/dev/null; then
+              tunnel_ready=true
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$tunnel_ready" != "true" ]; then
+            echo "The Azure Bastion tunnel did not become SSH-ready within the retry window."
+            cat "$HOME/bastion-tunnel.log"
+            exit 1
+          fi
+
+      - name: Deploy and verify through Ansible
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+          ACR_LOGIN_SERVER: ${{ steps.azure-prerequisites.outputs.acr_login_server }}
+          VM_ADMIN_USERNAME: ${{ secrets.AZURE_VM_ADMIN_USERNAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          ansible-playbook \
+            -i ansible/inventory.ini \
+            ansible/playbook.yml \
+            -e "ansible_host=127.0.0.1" \
+            -e "ansible_port=2222" \
+            -e "ansible_user=$VM_ADMIN_USERNAME" \
+            -e "ansible_ssh_private_key_file=$HOME/.ssh/ansible_cd" \
+            -e "container_registry_name=$ACR_NAME" \
+            -e "container_registry_login_server=$ACR_LOGIN_SERVER" \
+            -e "container_image_tag=$IMAGE_TAG"
+
+      - name: Close Bastion tunnel
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [ -f "$HOME/bastion-tunnel.pid" ]; then
+            kill "$(cat "$HOME/bastion-tunnel.pid")" 2>/dev/null || true
+            rm -f "$HOME/bastion-tunnel.pid"
+          fi
+          rm -f "$HOME/.ssh/ansible_cd"
+          rm -f "$HOME/.ssh/known_hosts"
+          rm -f "$HOME/bastion-tunnel.log"

@@ -1,23 +1,136 @@
-# Ansible (legacy deployment only)
+# Ansible deployment
 
-The playbook in this directory belongs to the earlier public-IP VM and Docker
-Compose deployment. It is **not compatible with the current Terraform stack**
-and must not be run against the Terraform VM: Terraform cloud-init owns the
-systemd-managed ACR container and the VM connects to Azure Database for
-PostgreSQL.
+Ansible deploys the Inventory Manager to the private Azure application VM. It
+does not create infrastructure or replace the VM's PostgreSQL configuration.
+The VM is reached through Azure Bastion using a local SSH tunnel; its public
+address is not used.
 
-The current inventory deliberately contains
-`REPLACE_WITH_LEGACY_VM_PUBLIC_IP`; it is not an Azure output and must not be
-replaced with the current Terraform VM's private or Bastion address. Do not
-restore the old checked-in public IP.
+## Deployment model
 
-For the current deployment, use Terraform and cloud-init as the source of
-truth. The application health endpoint is `http://<VM-private-IP>:3000/health`
-from inside the VNet. Connect to the VM with Azure Bastion; do not use this
-legacy playbook to install Compose, replace the container, or modify its
-database configuration.
+Terraform creates the VM with:
 
-The legacy files are retained for historical reference only. If the team
-chooses to make Ansible the deployment owner, first redesign the playbook to
-preserve the current managed-identity ACR pull, systemd service, and external
-PostgreSQL configuration, then test it against a disposable environment.
+- a system-assigned managed identity,
+- AcrPull permission on Azure Container Registry,
+- a systemd service named `inventory-manager`,
+- PostgreSQL connection settings, and
+- an initial container image from ACR.
+
+The systemd service starts `/usr/local/sbin/start-inventory-manager`. The
+script reads `/etc/inventory-manager.env`, authenticates with ACR using the VM
+managed identity, pulls the configured image, and runs the application on port
+3000.
+
+The Ansible playbook updates only the image/tag environment file and restarts
+the systemd service when the requested image ID or deployment environment
+changes. Rerunning the same image tag is idempotent and does not restart the
+application when the image and environment are unchanged.
+
+## Bastion tunnel
+
+Run the following commands from the repository root. Supply the current
+Terraform resource names and VM resource ID.
+
+```bash
+az network bastion tunnel \
+  --name "<BASTION_NAME>" \
+  --resource-group "<RESOURCE_GROUP>" \
+  --target-resource-id "<VM_RESOURCE_ID>" \
+  --resource-port 22 \
+  --port 2222
+```
+
+In another terminal, validate the inventory and SSH connection:
+
+```bash
+export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
+ansible-playbook -i ansible/inventory.ini --syntax-check ansible/playbook.yml
+ansible inventory -i ansible/inventory.ini \
+  -m ansible.builtin.ping \
+  -e ansible_ssh_private_key_file="$HOME/.ssh/ansible_cd"
+```
+
+Set `ansible_user` to the Terraform `admin_username` and keep the SSH private
+key outside the repository. If the tunnel uses a different local port, pass
+`-e ansible_port=<PORT>`.
+
+## Manual deployment
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/playbook.yml \
+  -e ansible_host=127.0.0.1 \
+  -e ansible_port=2222 \
+  -e ansible_ssh_private_key_file="$HOME/.ssh/ansible_cd" \
+  -e ansible_user="<TERRAFORM_VM_ADMIN_USERNAME>" \
+  -e container_registry_name="<ACR_NAME>" \
+  -e container_registry_login_server="<ACTUAL_ACR_LOGIN_SERVER>" \
+  -e container_image_tag="<GIT_SHA_OR_COMMIT_TAG>"
+```
+
+Use `terraform output -raw container_registry_login_server` when available
+instead of constructing an ACR hostname. The login server is passed directly to
+Ansible and must match the registry used to publish the image.
+
+## Verification
+
+From an SSH session to the application VM:
+
+```bash
+curl --fail http://127.0.0.1:3000/health
+docker ps --filter name=inventory-manager
+sudo systemctl status inventory-manager --no-pager
+sudo journalctl -u inventory-manager --no-pager -n 100
+```
+
+The health response must be `{"status":"ok"}`. The VM does not have a public IP,
+so use Azure Bastion or another host inside the VNet for external application
+connectivity tests.
+
+## Continuous Deployment
+
+[`.github/workflows/cd.yml`](../.github/workflows/cd.yml) runs after a merge to
+`main`. It:
+
+1. logs in to Azure,
+2. builds the Docker image,
+3. pushes only the Git SHA-tagged image to ACR,
+4. opens an Azure Bastion tunnel,
+5. runs this playbook through Ansible,
+6. verifies `/health`, and
+7. closes the tunnel.
+
+The Git SHA tag identifies the exact commit used to build an image. It is not
+automatically immutable: registry-level tag immutability must be enabled and
+configured separately in Azure Container Registry.
+
+The native Bastion tunnel requires a compatible Bastion SKU. The current
+Terraform configuration uses Basic Bastion. Native client tunnelling also
+requires `enableTunneling=true` on a compatible Standard or Premium Bastion.
+The current setup is a deployment blocker and must not be changed or upgraded
+until the team approves the cost and architecture change. Live deployment has
+not been verified.
+
+Configure these GitHub Actions secrets for the `production` environment:
+
+| Secret | Purpose |
+| --- | --- |
+| `AZURE_CREDENTIALS` | Azure service principal JSON for login |
+| `AZURE_RESOURCE_GROUP` | Terraform resource group |
+| `AZURE_BASTION_NAME` | Azure Bastion resource name |
+| `AZURE_VM_RESOURCE_ID` | Full resource ID of the application VM |
+| `AZURE_VM_ADMIN_USERNAME` | VM administrator username |
+| `AZURE_VM_SSH_PRIVATE_KEY` | Private key matching the VM public key |
+| `AZURE_VM_SSH_HOST_KEY` | Trusted SSH host key or host-and-key line for the application VM |
+| `ACR_NAME` | Azure Container Registry resource name |
+
+Do not store private keys or Terraform state in the repository.
+
+The CD workflow requires `AZURE_VM_SSH_HOST_KEY` before opening Ansible access.
+Obtain the value from a verified SSH session to the VM or the VM administrator;
+do not disable host-key checking or replace it with `ssh-keyscan` as a trust
+source. A missing host key is a deployment prerequisite, not a reason to weaken
+SSH verification.
+
+For the current tunnel, store a complete `known_hosts` entry for
+`[127.0.0.1]:2222`, including the key type and public key, for example:
+`[127.0.0.1]:2222 ssh-ed25519 <verified-public-key>`. Obtain and verify the
+public-key value independently before storing it in GitHub Actions secrets.
