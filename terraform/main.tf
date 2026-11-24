@@ -219,7 +219,7 @@ resource "azurerm_linux_virtual_machine" "inventory" {
   admin_username      = var.admin_username
 
   disable_password_authentication = true
-  allow_extension_operations      = true
+  allow_extension_operations      = false
 
   network_interface_ids = [
     azurerm_network_interface.inventory.id
