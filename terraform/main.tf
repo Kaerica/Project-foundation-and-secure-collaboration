@@ -31,7 +31,7 @@ resource "azurerm_subnet" "bastion" {
   name                 = "AzureBastionSubnet"
   resource_group_name  = azurerm_resource_group.inventory.name
   virtual_network_name = azurerm_virtual_network.inventory.name
-  address_prefixes     = ["10.0.1.0/26"]
+  address_prefixes     = ["10.0.4.0/26"]
 }
 
 resource "azurerm_subnet" "application" {
@@ -219,7 +219,7 @@ resource "azurerm_linux_virtual_machine" "inventory" {
   admin_username      = var.admin_username
 
   disable_password_authentication = true
-  allow_extension_operations      = false
+  allow_extension_operations      = true
 
   network_interface_ids = [
     azurerm_network_interface.inventory.id
@@ -277,6 +277,7 @@ resource "azurerm_postgresql_flexible_server" "inventory" {
   resource_group_name           = azurerm_resource_group.inventory.name
   location                      = azurerm_resource_group.inventory.location
   version                       = "16"
+  zone                          = "1"
   delegated_subnet_id           = azurerm_subnet.database.id
   private_dns_zone_id           = azurerm_private_dns_zone.postgresql.id
   public_network_access_enabled = false

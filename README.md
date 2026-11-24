@@ -266,13 +266,99 @@ automated tests, and a Docker image build.
 
 ### Security Scanning (DevSecOps)
 
-Every push and pull request also runs three security scans:
+Every push to a non-main branch and every pull request targeting `main` runs
+three security scans:
 
 - **Dependency scanning:** `npm audit` fails on HIGH or CRITICAL advisories.
 - **Container image scanning:** Trivy fails on fixable HIGH or CRITICAL vulnerabilities.
 - **IaC scanning:** Checkov scans the Terraform, the Dockerfile and the CI workflow.
 
 See [SECURITY.md](SECURITY.md) for the findings, how they were fixed, and the risks the team has accepted.
+
+### Latest security-check evidence
+
+[A successful pull-request run](https://github.com/Kaerica/Project-foundation-and-secure-collaboration/actions/runs/45286941188) completed all CI jobs. `npm audit` found 0 dependency vulnerabilities; Trivy found 37 HIGH and 1 CRITICAL OS findings with no published fix, and its configured fixable-vulnerability gate passed; Checkov passed all 209 checks with no failed checks. The full Trivy report is available in the run's `trivy-report` artifact. See [SECURITY.md](SECURITY.md) for thresholds and accepted risks.
+
+The active GitHub ruleset currently requires a pull request and one approving review, but no CI status checks. Until `dependency-scan`, `build`, and `iac-scan` are configured as required checks, CI failures do not block merges.
+
+## Cloud Architecture and Deployment Status
+
+### Architecture diagram
+
+The diagram shows the infrastructure currently described by Terraform and the
+existing CI workflow. The dashed path is the production release flow that is
+still to be implemented. There is currently no public web entry point to the
+application VM.
+
+```mermaid
+flowchart LR
+    Dev[Developer] -->|pull request| CI[GitHub Actions CI]
+    CI -->|lint, tests, image and IaC scans| Repo[(GitHub repository)]
+    Repo -. "CD workflow still required" .-> ACR[Azure Container Registry<br/>Basic, public endpoint]
+    ACR -. "image publishing still required" .-> VM[Private Ubuntu application VM<br/>Docker and systemd]
+
+    Internet((Internet)) --> Bastion[Azure Bastion<br/>SSH access gateway]
+    Bastion -->|SSH| VM
+    VM -->|private PostgreSQL connection| DB[(Azure Database for PostgreSQL<br/>private access)]
+    VM -->|outbound image pull| ACR
+    VM -->|outbound updates| NAT[NAT Gateway]
+    NAT --> Internet
+
+    subgraph Azure VNet
+        Bastion
+        VM
+        DB
+        NAT
+    end
+```
+
+### Current deployment status
+
+- Azure resources are defined in [terraform/](terraform/README.md). The VM has
+  no public IP, the database is private, and SSH access is through Azure
+  Bastion.
+- ACR currently has a **public network endpoint**. The assignment calls for a
+  private registry, so this does not yet meet that requirement.
+- The application VM allows port 3000 from the VNet. There is no public web
+  ingress resource yet, so a public live application URL is not available from
+  this repository configuration.
+- The [Ansible files](ansible/README.md) are documented as legacy and are not
+  compatible with the current Terraform and cloud-init deployment.
+- CI is present. Automated image publishing and production deployment through
+  Ansible are still outstanding; the diagram marks these paths as pending.
+
+### Cloud setup and teardown
+
+The current Terraform prerequisites, variable setup, plan/apply commands, and
+destroy command, including a post-deployment health check, are documented in
+[terraform/README.md](terraform/README.md).
+Review the plan and expected Azure charges before applying. Do not commit
+`terraform.tfvars`, Terraform state, saved plans, or SSH private keys.
+
+## Video Demo
+
+**Demo link:** To be added after recording and uploading the final demo.
+
+The assignment asks for a narrated demonstration of the project history, local
+application and container, CI and security scans, Terraform, Ansible, the
+production release flow, an operational health signal, and project reflection.
+Use the stricter supplied guidance: 10–15 minutes, face visible, and an
+unlisted link that works in a private browser window.
+
+## Known Gaps Before Submission
+
+1. Add a public HTTP/HTTPS entry point and verify the live application URL.
+2. Decide with the team how to meet the private ACR requirement.
+3. Complete the Ansible deployment path and make it the production deployment
+   step, as required by the assignment.
+4. Add and verify the merge-to-main CD workflow, including commit-SHA image
+   tagging and GitHub Secrets.
+5. Test a fresh infrastructure build and the complete Git-to-production flow
+   twice; record the results for the demo.
+6. Configure the GitHub ruleset to require `dependency-scan`, `build`, and
+   `iac-scan`; retain evidence of passing and failing runs.
+7. Add the verified live URL, final demo link, and summative PR link when they
+   exist.
 
 ## AI Use
 

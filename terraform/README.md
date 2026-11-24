@@ -72,6 +72,18 @@ PostgreSQL is private-only; its hostname is available from
 `terraform output postgresql_fqdn`. The registry login server is available from
 `terraform output container_registry_login_server`.
 
+After cloud-init completes, connect to the VM through Bastion and verify the
+systemd service and database-backed health endpoint:
+
+```bash
+sudo systemctl is-active inventory-manager.service
+curl --fail --show-error http://127.0.0.1:3000/health
+```
+
+The health request should return `{"status":"ok"}`. Run it on the VM because no
+public web ingress is currently provisioned; the endpoint is reachable only
+from the VM or an allowed network inside the VNet.
+
 Build and push the application image after the registry is created. The VM
 service retries the pull until this image is available:
 
