@@ -277,7 +277,7 @@ See [SECURITY.md](SECURITY.md) for the findings, how they were fixed, and the ri
 
 ### Latest security-check evidence
 
-[A successful pull-request run](https://github.com/Kaerica/Project-foundation-and-secure-collaboration/actions/runs/45286941188) completed all CI jobs. `npm audit` found 0 dependency vulnerabilities; Trivy found 37 HIGH and 1 CRITICAL OS findings with no published fix, and its configured fixable-vulnerability gate passed; Checkov passed all 209 checks with no failed checks. The full Trivy report is available in the run's `trivy-report` artifact. See [SECURITY.md](SECURITY.md) for thresholds and accepted risks.
+[A successful pull-request run](https://github.com/Kaerica/Project-foundation-and-secure-collaboration/actions/runs/45477451622) completed all CI jobs. `npm audit` found 0 dependency vulnerabilities; Trivy found 37 HIGH and 1 CRITICAL OS findings with no published fix, and its configured fixable-vulnerability gate passed; Checkov passed all 209 checks with no failed checks. The full Trivy report is available in the run's `trivy-report` artifact. See [SECURITY.md](SECURITY.md) for thresholds and accepted risks.
 
 The active GitHub ruleset currently requires a pull request and one approving review, but no CI status checks. Until `dependency-scan`, `build`, and `iac-scan` are configured as required checks, CI failures do not block merges.
 
@@ -285,22 +285,24 @@ The active GitHub ruleset currently requires a pull request and one approving re
 
 ### Architecture diagram
 
-The diagram shows the infrastructure currently described by Terraform and the
-existing CI workflow. The dashed path is the production release flow that is
-still to be implemented. There is currently no public web entry point to the
-application VM.
+The diagram shows the infrastructure defined in Terraform. The HTTP load
+balancer is configured in code but must still be applied and verified in Azure.
+The dashed path is proposed CD work in an unmerged pull request; it is blocked
+by the current Basic Bastion SKU.
 
 ```mermaid
 flowchart LR
     Dev[Developer] -->|pull request| CI[GitHub Actions CI]
     CI -->|lint, tests, image and IaC scans| Repo[(GitHub repository)]
-    Repo -. "CD workflow still required" .-> ACR[Azure Container Registry<br/>Basic, public endpoint]
-    ACR -. "image publishing still required" .-> VM[Private Ubuntu application VM<br/>Docker and systemd]
+    Repo -. "proposed CD in open PR #37" .-> CD[GitHub Actions CD]
+    CD -. "blocked: Bastion tunnel needs Standard or Premium" .-> VM[Private Ubuntu application VM<br/>Docker and systemd]
 
-    Internet((Internet)) --> Bastion[Azure Bastion<br/>SSH access gateway]
+    Internet((Internet)) -->|HTTP port 80| LB[Standard Azure Load Balancer<br/>public IP]
+    LB -->|TCP 3000; /health probe| VM
+    Internet --> Bastion[Azure Bastion<br/>SSH access gateway]
     Bastion -->|SSH| VM
+    VM -->|managed identity pull| ACR[Azure Container Registry<br/>Basic; public endpoint]
     VM -->|private PostgreSQL connection| DB[(Azure Database for PostgreSQL<br/>private access)]
-    VM -->|outbound image pull| ACR
     VM -->|outbound updates| NAT[NAT Gateway]
     NAT --> Internet
 
@@ -316,16 +318,21 @@ flowchart LR
 
 - Azure resources are defined in [terraform/](terraform/README.md). The VM has
   no public IP, the database is private, and SSH access is through Azure
-  Bastion.
+  Bastion. Terraform now defines a public Standard Load Balancer and static IP
+  that forward HTTP to the VM's private address; this code has not been applied
+  or verified in Azure.
+- Without a registered domain or TLS certificate, the configured public URL is
+  HTTP only. The cloud VM runs the API in read-only mode: health and product
+  listing remain public, while `POST /products` and
+  `PATCH /products/:id/quantity` return 403. Do not send sensitive information
+  over this unencrypted demo endpoint.
 - ACR currently has a **public network endpoint**. The assignment calls for a
-  private registry, so this does not yet meet that requirement.
-- The application VM allows port 3000 from the VNet. There is no public web
-  ingress resource yet, so a public live application URL is not available from
-  this repository configuration.
-- The [Ansible files](ansible/README.md) are documented as legacy and are not
-  compatible with the current Terraform and cloud-init deployment.
-- CI is present. Automated image publishing and production deployment through
-  Ansible are still outstanding; the diagram marks these paths as pending.
+  private registry, so this does not yet meet that requirement. This upgrade
+  was deferred.
+- PR #37 proposes Ansible-based CD with an Azure Bastion tunnel, but its
+  prerequisites block deployment while Bastion is Basic. The workflow and
+  changes remain unmerged; Standard/Premium Bastion or an in-VNet runner must
+  be approved and configured before automated deployment can work.
 
 ### Cloud setup and teardown
 
@@ -347,17 +354,20 @@ unlisted link that works in a private browser window.
 
 ## Known Gaps Before Submission
 
-1. Add a public HTTP/HTTPS entry point and verify the live application URL.
-2. Decide with the team how to meet the private ACR requirement.
-3. Complete the Ansible deployment path and make it the production deployment
-   step, as required by the assignment.
-4. Add and verify the merge-to-main CD workflow, including commit-SHA image
-   tagging and GitHub Secrets.
-5. Test a fresh infrastructure build and the complete Git-to-production flow
-   twice; record the results for the demo.
-6. Configure the GitHub ruleset to require `dependency-scan`, `build`, and
+1. Apply the Load Balancer Terraform change and verify the public HTTP URL,
+   health check, and database-backed product listing. Add HTTPS before using
+   the endpoint for sensitive traffic.
+2. Decide whether to implement Premium ACR Private Link and approve a private
+   CI publishing path; ACR is still Basic and public.
+3. Resolve the CD networking blocker (Standard/Premium Bastion native client
+   tunneling or an in-VNet runner), merge PR #37, configure its required secrets,
+   and verify SHA-tagged image publishing and Ansible deployment.
+4. Configure the GitHub ruleset to require `dependency-scan`, `build`, and
    `iac-scan`; retain evidence of passing and failing runs.
-7. Add the verified live URL, final demo link, and summative PR link when they
+5. Test a fresh infrastructure build and the complete Git-to-production flow
+   twice, including a visible code change, health/database verification, and
+   clean destroy/rebuild; retain evidence.
+6. Add the verified live URL, final demo link, and summative PR link when they
    exist.
 
 ## AI Use

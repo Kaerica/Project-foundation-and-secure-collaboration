@@ -43,9 +43,12 @@ through containerization, DevSecOps, and the summative infrastructure work.
   security rules, and Azure Container Registry.
 - Added cloud-init configuration for the VM to install and run the application
   container using a managed identity for ACR pulls.
+- Defined a public Standard Load Balancer HTTP endpoint and database-backed
+  health probe; cloud deployment runs the API read-only until HTTPS and
+  authorization are available.
 - Documented the current limitations: ACR uses a public endpoint, no public
-  application ingress is provisioned, and the retained Ansible playbook is for
-  a legacy deployment and is not used by the current Terraform stack.
-- Remaining work includes a compliant private registry path, public web
-  access, an Ansible-based automated CD workflow, verified live deployment, and
-  end-to-end deployment evidence.
+  registry endpoint, the Load Balancer and endpoint still need to be applied
+  and verified, and the proposed Ansible-based CD workflow is blocked by the
+  current Basic Bastion SKU.
+- Remaining work includes a compliant private registry path, Bastion/runner
+  setup for CD, verified live deployment, and end-to-end deployment evidence.

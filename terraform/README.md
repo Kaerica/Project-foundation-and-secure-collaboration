@@ -8,7 +8,8 @@ provides SSH access without assigning a public IP to the VM.
 
 - Resource group and virtual network.
 - `AzureBastionSubnet` with an Azure Bastion host and static public IP.
-- Private application subnet with an NSG, NAT Gateway, and an Ubuntu VM.
+- Private application subnet with an NSG, NAT Gateway, Ubuntu VM, and a public
+  Standard Load Balancer that forwards HTTP port 80 to the VM's port 3000.
 - Delegated PostgreSQL subnet, private DNS zone, and private Azure Database for
   PostgreSQL Flexible Server.
 - Basic Azure Container Registry with its admin account disabled. The VM's
@@ -29,7 +30,8 @@ the image is not yet available in ACR.
 - Unique Azure names for the PostgreSQL server and container registry.
 
 Azure Bastion, NAT Gateway, PostgreSQL, and the VM incur ongoing charges. Check
-current regional pricing and quotas before deployment.
+current regional pricing and quotas before deployment. The public Load
+Balancer and static IP may also incur charges.
 
 ## Configure
 
@@ -70,7 +72,9 @@ private address from `terraform output application_private_ip_address`.
 `terraform output bastion_public_ip_address` shows the Bastion public IP.
 PostgreSQL is private-only; its hostname is available from
 `terraform output postgresql_fqdn`. The registry login server is available from
-`terraform output container_registry_login_server`.
+`terraform output container_registry_login_server`. Terraform also outputs
+`application_public_url`, which is the public HTTP endpoint through the Load
+Balancer.
 
 After cloud-init completes, connect to the VM through Bastion and verify the
 systemd service and database-backed health endpoint:
@@ -81,8 +85,24 @@ curl --fail --show-error http://127.0.0.1:3000/health
 ```
 
 The health request should return `{"status":"ok"}`. Run it on the VM because no
-public web ingress is currently provisioned; the endpoint is reachable only
-from the VM or an allowed network inside the VNet.
+public DNS name or HTTPS certificate is configured. The Load Balancer's health
+probe checks the same endpoint.
+
+After the backend is healthy and cloud-init has completed, verify the public
+HTTP endpoint from a client outside the VNet:
+
+```powershell
+$applicationUrl = terraform -chdir=terraform output -raw application_public_url
+Invoke-RestMethod "$applicationUrl/health"
+Invoke-RestMethod "$applicationUrl/"
+```
+
+The health endpoint must return `{"status":"ok"}` and the root endpoint must
+return a JSON product list. The cloud VM runs with
+`INVENTORY_READ_ONLY=true`: public product listing and health checks are
+available, but `POST /products` and `PATCH /products/:id/quantity` return HTTP
+403. HTTP is unencrypted; use only non-sensitive demonstration data and do not
+send credentials or private information to this endpoint.
 
 Build and push the application image after the registry is created. The VM
 service retries the pull until this image is available:
@@ -99,6 +119,12 @@ docker push $image
 The VM uses its managed identity to pull the image. No registry admin password
 is enabled or needed. The local Compose stack can exercise the same database
 integration using PostgreSQL in Docker; see the repository README.
+
+The proposed GitHub Actions CD workflow is in open PR #37, not in the current
+main branch. It requires Azure Bastion native-client tunneling, which the
+current Basic Bastion SKU does not support. CD cannot be verified until an
+approved Standard/Premium Bastion or an in-VNet runner is available and the
+workflow is merged and configured.
 
 ### Private registry limitation
 

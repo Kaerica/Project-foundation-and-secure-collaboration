@@ -13,6 +13,16 @@ output "application_private_ip_address" {
   value       = azurerm_network_interface.inventory.private_ip_address
 }
 
+output "application_public_ip_address" {
+  description = "Public IP address of the HTTP application load balancer"
+  value       = azurerm_public_ip.application.ip_address
+}
+
+output "application_public_url" {
+  description = "Public HTTP URL for the read-only application endpoint"
+  value       = "http://${azurerm_public_ip.application.ip_address}"
+}
+
 output "postgresql_fqdn" {
   description = "Private DNS hostname of the PostgreSQL server"
   value       = azurerm_postgresql_flexible_server.inventory.fqdn
