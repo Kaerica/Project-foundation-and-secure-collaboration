@@ -17,11 +17,26 @@ All scans run in [.github/workflows/ci.yml](.github/workflows/ci.yml) on every p
 - **HIGH/CRITICAL only.** LOW and MEDIUM findings are reported but don't block merges. Blocking on every finding would make the pipeline fail all the time over issues that can't be exploited here, and people would start ignoring it.
 - **`--ignore-unfixed` for Trivy.** A vulnerability with no published fix can't be fixed by changing our code or rebuilding the image. Blocking on it would stop every merge without making anything safer. Unfixed vulnerabilities still show up in the full report (see below) so we can track them.
 - **Pinned scanner versions.** Trivy and Checkov run from pinned Docker images, not floating `@latest` tags or third-party wrapper actions. Results stay reproducible, and the risk of a compromised action tag running in our pipeline goes down.
+- **Checkov exclusions.** The workflow skips `CKV_AZURE_136`, `CKV_AZURE_166`, `CKV_AZURE_163`, `CKV_AZURE_139`, `CKV_AZURE_165`, `CKV_AZURE_167`, `CKV_AZURE_237`, `CKV_AZURE_233`, `CKV_AZURE_164`, and `CKV2_AZURE_57`. These are explicit exceptions, not passing checks; review them before production or infrastructure changes.
 
 ### Reports
 
 - The **full Trivy report** (all severities, including unfixed) is uploaded as the `trivy-report` build artifact on every run. You can download it from the Actions run summary.
 - `npm audit` and Checkov results are printed in the job logs.
+
+### Latest verified pull-request run
+
+The latest run checked during this review was [CI Pipeline run 45286941188](https://github.com/Kaerica/Project-foundation-and-secure-collaboration/actions/runs/45286941188), triggered by pull request #37 on November 23, 2026, for commit `716c11be3dc90fa4d87fe6228bf4ba22a359166e`. All three jobs succeeded:
+
+| Job / check | Verified result |
+|---|---|
+| `dependency-scan` | `npm audit` reported 0 vulnerabilities. |
+| Trivy in `build` | The report contained 37 HIGH and 1 CRITICAL Debian 12.15 OS findings; all 38 had no fixed version. The gate passed because it rejects only fixable HIGH/CRITICAL findings. The Node package scan had no HIGH/CRITICAL findings. |
+| `iac-scan` | Checkov reported 24 Terraform, 53 Dockerfile, and 132 GitHub Actions checks passed, with 0 failed checks. |
+
+The full Trivy report is available as the `trivy-report` artifact on that run. These results describe that pull-request commit; they do not certify every later commit or a live Azure deployment.
+
+The local `npm audit --json` check during this review also reported 0 vulnerabilities (280 dependencies: 14 production, 266 development, and 1 optional).
 
 ## Findings and Remediation
 
@@ -81,13 +96,13 @@ See [Accepted Risks](#accepted-risks) for the reasoning.
 | **CKV2_GHA_1**: top-level workflow permissions not restricted | `.github/workflows/ci.yml` | **FIXED**: added `permissions: contents: read` so the `GITHUB_TOKEN` is read-only |
 | **CKV_AZURE_119**: network interface should not use a public IP | `azurerm_network_interface.inventory` | **FIXED**: the application VM has no public IP and is reached through Azure Bastion |
 
-**Current unfiltered run:** Terraform passed 24 checks and failed 10; Dockerfile passed 53/53; GitHub Actions passed 76/76. The VM extension and database-subnet NSG findings were fixed. The remaining 10 findings are the documented service-tier and PostgreSQL network-model exceptions below. With the CI exclusions listed below, the Checkov run has no failed checks. Checkov also reported that it could not resolve its optional Prisma Cloud guidelines host; the scan still produced results.
+**Earlier unfiltered run:** Terraform passed 24 checks and failed 10; Dockerfile passed 53/53; GitHub Actions passed 76/76. The VM extension and database-subnet NSG findings were fixed. The remaining 10 findings are the documented service-tier and PostgreSQL network-model exceptions below. With the exclusions listed above, the latest verified pull-request Checkov run had no failed checks. Checkov also reported that it could not resolve its optional Prisma Cloud guidelines host; the scan still produced results.
 
 ## Accepted Risks
 
 | ID | Risk | Why it is accepted | Mitigations / follow-up |
 |----|------|--------------------|-------------------------|
-| Trivy OS CVEs (Finding 2b) | 34 HIGH and 1 CRITICAL vulnerability in Debian base packages | Debian has **no fixed version** for any of them (`will_not_fix`, `fix_deferred` or `affected`), so rebuilding can't remove them. Most are in tools the app never calls (`mount`, `perl`, `gzip`, `ncurses`), and several (util-linux mount TOCTOU, systemd-homed) need local privileged access, which the container doesn't give: it runs as non-root `node`. The zlib CVE-2023-45853 is in `minizip`, which neither Node nor the app uses. | The CI gate fails as soon as Debian publishes a fix, because those findings then count as "fixable". The full report is uploaded on every run. Future option: move to a distroless or Alpine runtime image to remove most OS packages. |
+| Trivy OS CVEs (Finding 2b) | The initial scan found 34 HIGH and 1 CRITICAL Debian base-package vulnerabilities. The latest verified PR report found 37 HIGH and 1 CRITICAL OS findings in Debian 12.15. | The latest report lists no fixed version for any of those 38 findings, so the configured fixable-only gate does not fail on them. Most are in OS packages rather than application dependencies; the container runs as non-root `node`. These remain known findings, not proof of zero image vulnerabilities. | Recheck the uploaded full report regularly and when the base image changes. The CI gate fails on fixable HIGH/CRITICAL findings. Consider a supported minimal runtime image to reduce OS packages. |
 | PostgreSQL resilience | `CKV_AZURE_136`: geo-redundant backups are disabled. | This is a single-region development database; enabling cross-region backup has additional cost and requires a supported region/configuration. | Public access is disabled, the database is on its delegated private subnet, private DNS is linked to the VNet, and the application subnet is explicitly allowed to reach PostgreSQL. Revisit backups for production. |
 | PostgreSQL private-network model | `CKV2_AZURE_57` expects a Private Link endpoint. | This server uses PostgreSQL Flexible Server's delegated-subnet (VNet integration) mode, an Azure-supported private-access model with no public endpoint; it is not the public-access-plus-private-endpoint mode. | See [Azure PostgreSQL private access networking](https://learn.microsoft.com/azure/postgresql/network/concepts-networking-private). |
 | Basic ACR limitations | `CKV_AZURE_139` and several other checks flag public access and Premium security/resilience features. The current registry is Basic and public. | Premium Private Link, dedicated data endpoints, zone/geo redundancy, quarantine, and trusted-image controls increase cost. The team has not selected or approved that upgrade. | Admin access is disabled and the VM receives `AcrPull` via managed identity, but the registry is **not private**. This remains an assignment gap until Premium Private Link and an in-network publishing path are approved and implemented. |
@@ -98,7 +113,7 @@ See [Accepted Risks](#accepted-risks) for the reasoning.
 - **Multi-stage build:** build tooling stays in the `builder` stage, and only the app files and production `node_modules` are copied into the runtime image.
 - **No secrets in the repository:** `.env` and `*.tfvars` are git-ignored, and only `.env.example` and `terraform.tfvars.example` with placeholders are committed.
 - **Least-privilege CI token:** the workflow's `GITHUB_TOKEN` has read-only `contents` permission.
-- **Branch protection:** Changes reach `main` through pull requests. The `build` and `iac-scan` checks run on every PR, but they block merges only when they are set as required status checks under Settings → Branches.
+- **Branch protection:** The active `foundation ruleset` requires pull requests and one approving review. The live ruleset checked on November 24, 2026 has no required status checks configured. Therefore, the successful CI jobs do **not** currently block merging. Configure `dependency-scan`, `build`, and `iac-scan` as required checks in the ruleset before relying on them as merge gates.
 
 ## Running the Scans Locally
 
