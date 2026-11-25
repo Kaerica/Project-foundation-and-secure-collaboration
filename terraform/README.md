@@ -72,6 +72,21 @@ PostgreSQL is private-only; its hostname is available from
 `terraform output postgresql_fqdn`. The registry login server is available from
 `terraform output container_registry_login_server`.
 
+The local Terraform configuration now describes a Standard public load
+balancer that forwards HTTP port 80 to the application on port 3000 and probes
+`/health`. Its public IP and URL are available through the
+`application_public_ip_address` and `application_public_url` outputs after
+creation. The listener is plain HTTP, not HTTPS. This ingress is only planned;
+it has not been applied or verified against Azure. The VM remains private and
+the NSG continues to allow SSH only from the Bastion subnet, not the public
+Internet.
+
+Read-only mode is enabled by the cloud-init service using
+`INVENTORY_READ_ONLY=true`. Terraform ignores changes to VM `custom_data` to
+avoid replacing an existing VM, so this setting in cloud-init only applies
+when a VM is initially provisioned. Existing guest configuration must be
+updated through an approved deployment or direct VM operation.
+
 Build and push an initial application image after the registry is created. The
 VM service retries the pull until this image is available. Use a commit SHA or
 another approved deployment tag for repeatable manual deployments:
@@ -100,6 +115,13 @@ compatible Standard or Premium Bastion with native client tunnelling enabled
 (`enableTunneling=true`). Do not change the SKU or enable tunnelling without
 the team's explicit infrastructure and cost approval. Deployment has not been
 verified against Azure.
+
+The latest local, unsaved Terraform plan reports six resources to add, two
+in-place updates, and no destroy or replacement actions. The in-place updates
+are the application NSG rules for load-balancer traffic and changing the
+existing VM's `allow_extension_operations` from `true` to `false`. Review this
+VM security-setting change explicitly before any apply. No Terraform apply has
+been performed for these changes.
 
 ### Private registry limitation
 
