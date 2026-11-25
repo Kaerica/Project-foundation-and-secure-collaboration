@@ -46,18 +46,24 @@ through containerization, DevSecOps, and the summative infrastructure work.
 - Added an opt-in application read-only guard for POST and PATCH inventory
   routes, with tests ensuring rejected writes never reach the store. Terraform
   cloud-init enables the guard for newly provisioned VMs.
-- Added local Terraform configuration for public HTTP load-balancer ingress
-  and health probes. It is not applied; there is no confirmed public URL.
+- Added Terraform configuration for public HTTP load-balancer ingress and
+  health probes. Applied and verified the public endpoint
+  `http://172.202.88.20`; GET `/health` and `/` both returned HTTP 200.
+- Upgraded Bastion to Standard and enabled native client tunnelling for Ansible
+  CD; Terraform state confirms both settings. Standard Bastion may incur
+  higher ongoing cost.
 - Updated architecture and setup documentation, including the HTTP-only
   ingress limitation and the fact that Terraform ignores changes to VM
   `custom_data`.
 - Validation of the current local source: 26 application tests pass, lint
-  passes, and Terraform format and validation pass. A fresh read-only plan
-  reports six additions, two in-place changes, and zero destroys. One in-place
-  change disables VM extension operations and still needs explicit review.
+  passes, and Terraform format and validation pass. A fresh Terraform plan
+  reports no remaining changes. The apply's attempt to disable VM extension
+  operations failed because Azure extensions were present; no extensions were
+  removed. Terraform now ignores this field for the existing VM.
 - Remaining integration work includes resolving the production Ansible
   launcher/image-tag mismatch, populating required GitHub deployment secrets,
-  obtaining approval for compatible Bastion tunnelling, deciding whether a
-  private ACR path is required, applying approved infrastructure changes, and
+  configuring the required GitHub deployment secrets, resolving the live
+  Ansible launcher/image-tag mismatch, deciding whether a private ACR path is
+  required, and
   demonstrating the complete pipeline. No changes in this worktree have been
   applied to Azure or committed/pushed.

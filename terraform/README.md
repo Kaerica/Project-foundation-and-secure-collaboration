@@ -72,14 +72,14 @@ PostgreSQL is private-only; its hostname is available from
 `terraform output postgresql_fqdn`. The registry login server is available from
 `terraform output container_registry_login_server`.
 
-The local Terraform configuration now describes a Standard public load
+The Terraform configuration provisions a Standard public load
 balancer that forwards HTTP port 80 to the application on port 3000 and probes
 `/health`. Its public IP and URL are available through the
 `application_public_ip_address` and `application_public_url` outputs after
-creation. The listener is plain HTTP, not HTTPS. This ingress is only planned;
-it has not been applied or verified against Azure. The VM remains private and
-the NSG continues to allow SSH only from the Bastion subnet, not the public
-Internet.
+creation. The listener is plain HTTP, not HTTPS. The live URL
+`http://172.202.88.20` returned HTTP 200 for both `/health` and `/`. The VM
+remains private and the NSG allows SSH only from the Bastion subnet, not the
+public Internet.
 
 Read-only mode is enabled by the cloud-init service using
 `INVENTORY_READ_ONLY=true`. Terraform ignores changes to VM `custom_data` to
@@ -109,19 +109,16 @@ GitHub Actions CD publishes and deploys the current commit SHA. The workflow
 does not use `latest` as the deployment identity, and a Git SHA tag is not
 automatically immutable; ACR tag immutability requires separate configuration.
 
-The native Bastion SSH tunnel is a live deployment prerequisite. The current
-Terraform configuration uses Basic Bastion, while the CD workflow requires a
-compatible Standard or Premium Bastion with native client tunnelling enabled
-(`enableTunneling=true`). Do not change the SKU or enable tunnelling without
-the team's explicit infrastructure and cost approval. Deployment has not been
-verified against Azure.
+The Terraform configuration provisions Standard Bastion with native client
+tunnelling enabled (`enableTunneling=true`) for the CD workflow. Azure state
+confirms both settings. Standard Bastion can incur higher ongoing cost than
+Basic Bastion.
 
-The latest local, unsaved Terraform plan reports six resources to add, two
-in-place updates, and no destroy or replacement actions. The in-place updates
-are the application NSG rules for load-balancer traffic and changing the
-existing VM's `allow_extension_operations` from `true` to `false`. Review this
-VM security-setting change explicitly before any apply. No Terraform apply has
-been performed for these changes.
+The first approved Terraform apply created the public ingress and upgraded
+Bastion. Azure rejected the in-place VM `allow_extension_operations` change
+because VM extensions were present; no extensions were removed. The setting is
+now ignored for the existing VM so Terraform will not retry that update. A
+fresh plan reports no remaining changes, with no VM replacement or destruction.
 
 ### Private registry limitation
 
