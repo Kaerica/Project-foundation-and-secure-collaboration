@@ -316,21 +316,20 @@ service state requires it. The VM pulls images through its managed identity and
 AcrPull role; registry administrator credentials are not stored on the VM.
 
 The deployment requires Standard Bastion with native client tunnelling enabled
-and the Azure and Bastion secrets documented in
+and GitHub OIDC federation plus the deployment values documented in
 [`ansible/README.md`](ansible/README.md).
 
 Deployment is not yet demonstrated end-to-end. The repository's current
-Ansible playbook updates the image tag environment file, but the manually
-configured production startup wrapper must also read that file for SHA-tagged
-deployments to change the running image. The Standard Bastion upgrade and
-native tunnelling are now applied and verified, but the GitHub Actions
-deployment still requires all production secrets. Do not treat the workflow
-as production verified until those prerequisites are resolved and a deployment
-is tested.
+Ansible playbook now updates the image tag environment file and repairs pinned
+image references in the VM startup wrapper. This fix has not yet run against
+production. Standard Bastion with native tunnelling is applied and verified;
+the Azure application must still have a federated identity credential matching
+the GitHub `production` environment, and CD must complete successfully before
+the workflow is considered production-verified.
 
 The application image currently deployed to the existing VM was previously
-verified in read-only mode. The local source and Terraform changes in this
-worktree are not yet merged or deployed.
+verified in read-only mode. The current local OIDC and launcher fixes still
+need review, merge, and a successful deployment.
 
 ## AI Use
 

@@ -20,6 +20,9 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -35,7 +38,9 @@ jobs:
 
       - name: Validate deployment prerequisites
         env:
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
           AZURE_BASTION_NAME: ${{ secrets.AZURE_BASTION_NAME }}
           AZURE_VM_RESOURCE_ID: ${{ secrets.AZURE_VM_RESOURCE_ID }}
@@ -48,7 +53,9 @@ jobs:
 
           missing=()
           for item in \
-            "AZURE_CREDENTIALS=$AZURE_CREDENTIALS" \
+            "AZURE_CLIENT_ID=$AZURE_CLIENT_ID" \
+            "AZURE_TENANT_ID=$AZURE_TENANT_ID" \
+            "AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID" \
             "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP" \
             "AZURE_BASTION_NAME=$AZURE_BASTION_NAME" \
             "AZURE_VM_RESOURCE_ID=$AZURE_VM_RESOURCE_ID" \
@@ -88,7 +95,9 @@ jobs:
       - name: Azure login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Install Azure Bastion CLI extension
         run: az extension add --name bastion --yes

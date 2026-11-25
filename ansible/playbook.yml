@@ -70,6 +70,50 @@
           CONTAINER_REGISTRY_NAME={{ container_registry_name }}
       register: deployment_environment
 
+    - name: Make the systemd launcher use the requested image tag
+      ansible.builtin.replace:
+        path: /usr/local/sbin/start-inventory-manager
+        regexp: '(?<=")[^"]+/inventory-manager:[^"]+(?=")'
+        replace: '$CONTAINER_REGISTRY_LOGIN_SERVER/inventory-manager:$CONTAINER_IMAGE_TAG'
+        backup: false
+      register: launcher_image_config
+
+    - name: Verify the launcher reads its deployment environment
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -Fq
+          - source /etc/inventory-manager.env
+          - /usr/local/sbin/start-inventory-manager
+      changed_when: false
+
+    - name: Verify the launcher keeps the application read-only
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -Eq
+          - INVENTORY_READ_ONLY=(true|"true")
+          - /usr/local/sbin/start-inventory-manager
+      changed_when: false
+
+    - name: Count launcher references to the configured image
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -Fc
+          - '"$CONTAINER_REGISTRY_LOGIN_SERVER/inventory-manager:$CONTAINER_IMAGE_TAG"'
+          - /usr/local/sbin/start-inventory-manager
+      register: launcher_image_reference_count
+      changed_when: false
+
+    - name: Verify both image pull and container launch use the configured tag
+      ansible.builtin.assert:
+        that:
+          - launcher_image_reference_count.stdout | int >= 2
+        fail_msg: >-
+          The service launcher must use the configured registry and image tag
+          for both docker pull and docker run.
+
     - name: Pull the desired container image
       ansible.builtin.command:
         argv:
@@ -132,6 +176,7 @@
         - >-
           inventory_service_status.rc != 0 or
           deployment_environment.changed or
+          launcher_image_config.changed or
           running_image_id.rc != 0 or
           running_image_id.stdout != desired_image_id.stdout
 

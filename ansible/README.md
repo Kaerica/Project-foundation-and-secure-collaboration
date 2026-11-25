@@ -18,7 +18,10 @@ Terraform creates the VM with:
 The systemd service starts `/usr/local/sbin/start-inventory-manager`. The
 script reads `/etc/inventory-manager.env`, authenticates with ACR using the VM
 managed identity, pulls the configured image, and runs the application on port
-3000.
+3000. Ansible replaces any pinned image reference with the configured registry
+and SHA tag, verifies both the pull and run references, and confirms the
+launcher retains `INVENTORY_READ_ONLY=true`. It restarts the service if this
+launcher configuration changes.
 
 The Ansible playbook installs Docker and Compose, updates the image/tag
 environment file, and restarts the systemd service when the requested image ID
@@ -110,19 +113,22 @@ configured separately in Azure Container Registry.
 
 Terraform has upgraded Bastion to Standard and Azure state confirms native
 client tunnelling is enabled. Standard Bastion may add ongoing cost. The
-end-to-end GitHub deployment still needs its production secrets and has not
-yet been verified.
+end-to-end GitHub deployment still needs OIDC federation configured in Azure
+and a successful production run.
 
 The image ID check intentionally fails if the running service does not match
-the requested tag. The existing production VM's startup wrapper must consume
-`/etc/inventory-manager.env`; this repository change cannot update or verify
-that VM without a deployment run.
+the requested tag. On the first deployment with this playbook, Ansible replaces
+pinned image references in the existing production VM's startup wrapper with
+the environment-file variables and restarts the service. This change has not
+yet been run against production.
 
 Configure these GitHub Actions secrets for the `production` environment:
 
 | Secret | Purpose |
 | --- | --- |
-| `AZURE_CREDENTIALS` | Azure service principal JSON for login |
+| `AZURE_CLIENT_ID` | Azure application/client ID used for OIDC login |
+| `AZURE_TENANT_ID` | Microsoft Entra tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
 | `AZURE_RESOURCE_GROUP` | Terraform resource group |
 | `AZURE_BASTION_NAME` | Azure Bastion resource name |
 | `AZURE_VM_RESOURCE_ID` | Full resource ID of the application VM |
@@ -132,6 +138,14 @@ Configure these GitHub Actions secrets for the `production` environment:
 | `ACR_NAME` | Azure Container Registry resource name |
 
 Do not store private keys or Terraform state in the repository.
+
+The Azure application must have a federated identity credential for this
+repository and the `production` GitHub environment. Use issuer
+`https://token.actions.githubusercontent.com`, subject
+`repo:Kaerica/Project-foundation-and-secure-collaboration:environment:production`,
+and audience `api://AzureADTokenExchange`. Grant that application only the
+Azure permissions required to inspect the deployment resources and push to
+ACR. Do not configure a client secret for GitHub Actions.
 
 The CD workflow requires `AZURE_VM_SSH_HOST_KEY` before opening Ansible access.
 Obtain the value from a verified SSH session to the VM or the VM administrator;
