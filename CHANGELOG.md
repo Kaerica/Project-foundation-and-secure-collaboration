@@ -55,15 +55,19 @@ through containerization, DevSecOps, and the summative infrastructure work.
 - Updated architecture and setup documentation, including the HTTP-only
   ingress limitation and the fact that Terraform ignores changes to VM
   `custom_data`.
+- Updated Ansible to install Docker and Compose, then verify that the healthy
+  application is running the requested image ID.
+- Made CD call the reusable CI workflow and wait for it to pass; added Linux
+  Ansible syntax validation to CI and limited CD to pushes to `main`.
 - Validation of the current local source: 26 application tests pass, lint
-  passes, and Terraform format and validation pass. A fresh Terraform plan
-  reports no remaining changes. The apply's attempt to disable VM extension
-  operations failed because Azure extensions were present; no extensions were
-  removed. Terraform now ignores this field for the existing VM.
-- Remaining integration work includes resolving the production Ansible
-  launcher/image-tag mismatch, populating required GitHub deployment secrets,
-  configuring the required GitHub deployment secrets, resolving the live
-  Ansible launcher/image-tag mismatch, deciding whether a private ACR path is
-  required, and
-  demonstrating the complete pipeline. No changes in this worktree have been
+  passes, and the Linux Ansible syntax check and GitHub workflow YAML parsing
+  pass. Terraform was unchanged in this follow-up; earlier Terraform format,
+  validation, and plan results remain as previously recorded. The apply's
+  attempt to disable VM extension operations failed because Azure extensions
+  were present; no extensions were removed. Terraform now ignores this field
+  for the existing VM.
+- Remaining integration work includes verifying or updating the existing
+  production VM startup wrapper, adding required GitHub deployment secrets,
+  deciding whether a private ACR path is required, and demonstrating a
+  successful end-to-end deployment. No changes in this worktree have been
   applied to Azure or committed/pushed.

@@ -20,10 +20,13 @@ script reads `/etc/inventory-manager.env`, authenticates with ACR using the VM
 managed identity, pulls the configured image, and runs the application on port
 3000.
 
-The Ansible playbook updates only the image/tag environment file and restarts
-the systemd service when the requested image ID or deployment environment
-changes. Rerunning the same image tag is idempotent and does not restart the
-application when the image and environment are unchanged.
+The Ansible playbook installs Docker and Compose, updates the image/tag
+environment file, and restarts the systemd service when the requested image ID
+or deployment environment changes. After the health check, it verifies that
+the running container's image ID matches the requested image. This catches a
+startup wrapper that ignores the updated tag instead of reporting a false
+deployment success. Rerunning the same image tag is idempotent and does not
+restart the application when the image and environment are unchanged.
 
 ## Bastion tunnel
 
@@ -52,6 +55,8 @@ ansible inventory -i ansible/inventory.ini \
 Set `ansible_user` to the Terraform `admin_username` and keep the SSH private
 key outside the repository. If the tunnel uses a different local port, pass
 `-e ansible_port=<PORT>`.
+The syntax check also runs in Ubuntu CI and does not connect to or change the
+live VM.
 
 ## Manual deployment
 
@@ -88,14 +93,15 @@ connectivity tests.
 ## Continuous Deployment
 
 [`.github/workflows/cd.yml`](../.github/workflows/cd.yml) runs after a merge to
-`main`. It:
+`main`, and calls the same CI workflow first. Deployment only starts if CI
+passes. It:
 
 1. logs in to Azure,
 2. builds the Docker image,
 3. pushes only the Git SHA-tagged image to ACR,
 4. opens an Azure Bastion tunnel,
 5. runs this playbook through Ansible,
-6. verifies `/health`, and
+6. verifies `/health` and the running image ID, and
 7. closes the tunnel.
 
 The Git SHA tag identifies the exact commit used to build an image. It is not
@@ -106,6 +112,11 @@ Terraform has upgraded Bastion to Standard and Azure state confirms native
 client tunnelling is enabled. Standard Bastion may add ongoing cost. The
 end-to-end GitHub deployment still needs its production secrets and has not
 yet been verified.
+
+The image ID check intentionally fails if the running service does not match
+the requested tag. The existing production VM's startup wrapper must consume
+`/etc/inventory-manager.env`; this repository change cannot update or verify
+that VM without a deployment run.
 
 Configure these GitHub Actions secrets for the `production` environment:
 

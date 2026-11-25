@@ -4,6 +4,7 @@ permissions:
   contents: read
 
 on:
+  workflow_call:
   push:
     branches-ignore:
       - main
@@ -12,6 +13,26 @@ on:
       - main
 
 jobs:
+  ansible-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible
+        run: python -m pip install --disable-pip-version-check ansible-core
+
+      - name: Check Ansible playbook syntax
+        run: |
+          export ANSIBLE_CONFIG="$PWD/ansible/ansible.cfg"
+          ansible-playbook -i ansible/inventory.ini --syntax-check ansible/playbook.yml
+
   dependency-scan:
     runs-on: ubuntu-latest
 

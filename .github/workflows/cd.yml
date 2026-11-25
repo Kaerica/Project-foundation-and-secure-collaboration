@@ -7,14 +7,17 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 concurrency:
   group: inventory-manager-production
   cancel-in-progress: false
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   deploy:
+    needs: ci
     runs-on: ubuntu-latest
     environment: production
 
