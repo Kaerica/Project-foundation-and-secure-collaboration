@@ -130,7 +130,8 @@ resource "azurerm_bastion_host" "inventory" {
   name                = "bastion-inventory-${var.environment}"
   location            = azurerm_resource_group.inventory.location
   resource_group_name = azurerm_resource_group.inventory.name
-  sku                 = "Basic"
+  sku                 = "Standard"
+  tunneling_enabled   = true
 
   ip_configuration {
     name                 = "configuration"
@@ -336,8 +337,8 @@ resource "azurerm_linux_virtual_machine" "inventory" {
   }
 
   lifecycle {
-    # Cloud-init changes require replacement; manage existing guest configuration separately.
-    ignore_changes = [custom_data]
+    # Existing guest data and VM extension settings cannot be safely reconciled in-place.
+    ignore_changes = [custom_data, allow_extension_operations]
   }
 }
 

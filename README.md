@@ -33,7 +33,7 @@ The Inventory Manager gives these shop owners a simple digital record of their p
 
 ```mermaid
 flowchart LR
-  User[Browser or API client] -->|HTTP :80, planned ingress| LB[Azure Load Balancer]
+  User[Browser or API client] -->|HTTP :80| LB[Azure Load Balancer]
   LB -->|TCP :3000| VM[Private Ubuntu VM\nDocker + systemd]
   VM -->|Private PostgreSQL :5432| DB[(Azure PostgreSQL Flexible Server)]
   VM -->|Managed identity / AcrPull| ACR[Azure Container Registry]
@@ -42,9 +42,8 @@ flowchart LR
   CI -->|Ansible deployment, pending integration| VM
 ```
 
-The public load-balancer route is present in the local Terraform changes but
-has not been applied. Until approved and applied, there is no Terraform-managed
-public application URL.
+The public load-balancer route is provisioned and verified at
+http://172.202.88.20. It is plain HTTP, not HTTPS.
 
 ## Project Objectives
 
@@ -315,16 +314,18 @@ compares the desired image ID with the running container ID. It restarts
 service state requires it. The VM pulls images through its managed identity and
 AcrPull role; registry administrator credentials are not stored on the VM.
 
-The deployment requires the Azure and Bastion secrets documented in
+The deployment requires Standard Bastion with native client tunnelling enabled
+and the Azure and Bastion secrets documented in
 [`ansible/README.md`](ansible/README.md).
 
 Deployment is not yet demonstrated end-to-end. The repository's current
 Ansible playbook updates the image tag environment file, but the manually
 configured production startup wrapper must also read that file for SHA-tagged
-deployments to change the running image. The GitHub Actions deployment also
-requires populated repository secrets and a Bastion SKU/configuration that
-supports native client tunnelling. Do not treat the workflow as production
-verified until those prerequisites are resolved and a deployment is tested.
+deployments to change the running image. The Standard Bastion upgrade and
+native tunnelling are now applied and verified, but the GitHub Actions
+deployment still requires all production secrets. Do not treat the workflow
+as production verified until those prerequisites are resolved and a deployment
+is tested.
 
 The application image currently deployed to the existing VM was previously
 verified in read-only mode. The local source and Terraform changes in this

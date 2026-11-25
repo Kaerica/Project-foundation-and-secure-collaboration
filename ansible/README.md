@@ -102,12 +102,10 @@ The Git SHA tag identifies the exact commit used to build an image. It is not
 automatically immutable: registry-level tag immutability must be enabled and
 configured separately in Azure Container Registry.
 
-The native Bastion tunnel requires a compatible Bastion SKU. The current
-Terraform configuration uses Basic Bastion. Native client tunnelling also
-requires `enableTunneling=true` on a compatible Standard or Premium Bastion.
-The current setup is a deployment blocker and must not be changed or upgraded
-until the team approves the cost and architecture change. Live deployment has
-not been verified.
+Terraform has upgraded Bastion to Standard and Azure state confirms native
+client tunnelling is enabled. Standard Bastion may add ongoing cost. The
+end-to-end GitHub deployment still needs its production secrets and has not
+yet been verified.
 
 Configure these GitHub Actions secrets for the `production` environment:
 
