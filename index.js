@@ -4,10 +4,13 @@ const { createProductStore } = require('./database')
 const PORT = Number(process.env.PORT) || 3000
 const MAX_BODY_BYTES = 1024 * 1024
 
-function createServer ({ productStore = createProductStore() } = {}) {
+function createServer ({
+  productStore = createProductStore(),
+  readOnly = process.env.INVENTORY_READ_ONLY === 'true'
+} = {}) {
   return http.createServer((request, response) => {
     response.setHeader('Content-Type', 'application/json; charset=utf-8')
-    handleRequest(request, response, productStore).catch((error) => {
+    handleRequest(request, response, productStore, readOnly).catch((error) => {
       const clientError = getClientError(error)
 
       if (clientError) {
@@ -21,7 +24,7 @@ function createServer ({ productStore = createProductStore() } = {}) {
   })
 }
 
-async function handleRequest (request, response, productStore) {
+async function handleRequest (request, response, productStore, readOnly = false) {
   if (request.method === 'GET' && request.url === '/health') {
     try {
       await productStore.checkConnection()
@@ -43,6 +46,11 @@ async function handleRequest (request, response, productStore) {
   }
 
   if (request.method === 'POST' && request.url === '/products') {
+    if (readOnly) {
+      sendJson(response, 403, { error: 'Inventory writes are disabled.' })
+      return
+    }
+
     const body = await readJsonBody(request)
     const product = await productStore.addProduct(body.name, body.price, body.quantity)
     sendJson(response, 201, { product })
@@ -51,6 +59,11 @@ async function handleRequest (request, response, productStore) {
 
   const quantityRoute = request.url.match(/^\/products\/(\d+)\/quantity$/)
   if (request.method === 'PATCH' && quantityRoute) {
+    if (readOnly) {
+      sendJson(response, 403, { error: 'Inventory writes are disabled.' })
+      return
+    }
+
     const body = await readJsonBody(request)
     const message = await productStore.updateQuantity(
       Number(quantityRoute[1]),

@@ -246,6 +246,23 @@ test('POST /products rejects malformed JSON', async () => {
   })
 })
 
+test('read-only mode rejects POST /products without calling the store', async () => {
+  let addCalled = false
+  const response = await requestServer('/products', {
+    addProduct: async () => { addCalled = true }
+  }, {
+    method: 'POST',
+    body: { name: 'Pencil', price: 300, quantity: 40 },
+    readOnly: true
+  })
+
+  assert.equal(response.statusCode, 403)
+  assert.deepEqual(JSON.parse(response.body), {
+    error: 'Inventory writes are disabled.'
+  })
+  assert.equal(addCalled, false)
+})
+
 test('PATCH /products/:id/quantity updates the stored quantity', async () => {
   let updated
   const response = await requestServer('/products/3/quantity', {
@@ -265,6 +282,23 @@ test('PATCH /products/:id/quantity updates the stored quantity', async () => {
   })
 })
 
+test('read-only mode rejects PATCH quantity without calling the store', async () => {
+  let updateCalled = false
+  const response = await requestServer('/products/3/quantity', {
+    updateQuantity: async () => { updateCalled = true }
+  }, {
+    method: 'PATCH',
+    body: { quantity: 12 },
+    readOnly: true
+  })
+
+  assert.equal(response.statusCode, 403)
+  assert.deepEqual(JSON.parse(response.body), {
+    error: 'Inventory writes are disabled.'
+  })
+  assert.equal(updateCalled, false)
+})
+
 async function requestServer (path, storeOverrides, options = {}) {
   const productStore = {
     checkConnection: async () => {},
@@ -274,7 +308,7 @@ async function requestServer (path, storeOverrides, options = {}) {
     getLowStockProducts: async () => [],
     ...storeOverrides
   }
-  const server = createServer({ productStore })
+  const server = createServer({ productStore, readOnly: options.readOnly })
   await new Promise((resolve) => server.listen(0, resolve))
 
   try {

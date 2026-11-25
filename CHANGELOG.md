@@ -43,9 +43,21 @@ through containerization, DevSecOps, and the summative infrastructure work.
   security rules, and Azure Container Registry.
 - Added cloud-init configuration for the VM to install and run the application
   container using a managed identity for ACR pulls.
-- Documented the current limitations: ACR uses a public endpoint, no public
-  application ingress is provisioned, and the retained Ansible playbook is for
-  a legacy deployment and is not used by the current Terraform stack.
-- Remaining work includes a compliant private registry path, public web
-  access, an Ansible-based automated CD workflow, verified live deployment, and
-  end-to-end deployment evidence.
+- Added an opt-in application read-only guard for POST and PATCH inventory
+  routes, with tests ensuring rejected writes never reach the store. Terraform
+  cloud-init enables the guard for newly provisioned VMs.
+- Added local Terraform configuration for public HTTP load-balancer ingress
+  and health probes. It is not applied; there is no confirmed public URL.
+- Updated architecture and setup documentation, including the HTTP-only
+  ingress limitation and the fact that Terraform ignores changes to VM
+  `custom_data`.
+- Validation of the current local source: 26 application tests pass, lint
+  passes, and Terraform format and validation pass. A fresh read-only plan
+  reports six additions, two in-place changes, and zero destroys. One in-place
+  change disables VM extension operations and still needs explicit review.
+- Remaining integration work includes resolving the production Ansible
+  launcher/image-tag mismatch, populating required GitHub deployment secrets,
+  obtaining approval for compatible Bastion tunnelling, deciding whether a
+  private ACR path is required, applying approved infrastructure changes, and
+  demonstrating the complete pipeline. No changes in this worktree have been
+  applied to Azure or committed/pushed.

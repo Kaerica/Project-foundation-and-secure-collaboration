@@ -139,6 +139,53 @@ resource "azurerm_bastion_host" "inventory" {
   }
 }
 
+resource "azurerm_public_ip" "application" {
+  name                = "pip-app-${var.environment}"
+  location            = azurerm_resource_group.inventory.location
+  resource_group_name = azurerm_resource_group.inventory.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+}
+
+resource "azurerm_lb" "application" {
+  name                = "lb-inventory-app-${var.environment}"
+  location            = azurerm_resource_group.inventory.location
+  resource_group_name = azurerm_resource_group.inventory.name
+  sku                 = "Standard"
+
+  frontend_ip_configuration {
+    name                 = "public"
+    public_ip_address_id = azurerm_public_ip.application.id
+  }
+}
+
+resource "azurerm_lb_backend_address_pool" "application" {
+  name            = "backend-inventory-app-${var.environment}"
+  loadbalancer_id = azurerm_lb.application.id
+}
+
+resource "azurerm_lb_probe" "application" {
+  name                = "probe-inventory-app-health"
+  loadbalancer_id     = azurerm_lb.application.id
+  protocol            = "Http"
+  port                = 3000
+  request_path        = "/health"
+  interval_in_seconds = 5
+  number_of_probes    = 2
+}
+
+resource "azurerm_lb_rule" "application_http" {
+  name                           = "rule-inventory-app-http"
+  loadbalancer_id                = azurerm_lb.application.id
+  protocol                       = "Tcp"
+  frontend_port                  = 80
+  backend_port                   = 3000
+  frontend_ip_configuration_name = "public"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.application.id]
+  probe_id                       = azurerm_lb_probe.application.id
+  disable_outbound_snat          = true
+}
+
 resource "azurerm_network_security_group" "application" {
   name                = "nsg-inventory-app-${var.environment}"
   location            = azurerm_resource_group.inventory.location
@@ -165,6 +212,30 @@ resource "azurerm_network_security_group" "application" {
     source_port_range          = "*"
     destination_port_range     = "3000"
     source_address_prefix      = "VirtualNetwork"
+    destination_address_prefix = "*"
+  }
+
+  security_rule {
+    name                       = "allow-application-from-internet"
+    priority                   = 120
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "3000"
+    source_address_prefix      = "Internet"
+    destination_address_prefix = "*"
+  }
+
+  security_rule {
+    name                       = "allow-load-balancer-health-probe"
+    priority                   = 130
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "3000"
+    source_address_prefix      = "AzureLoadBalancer"
     destination_address_prefix = "*"
   }
 }
@@ -209,6 +280,12 @@ resource "azurerm_network_interface" "inventory" {
     subnet_id                     = azurerm_subnet.application.id
     private_ip_address_allocation = "Dynamic"
   }
+}
+
+resource "azurerm_network_interface_backend_address_pool_association" "application" {
+  network_interface_id    = azurerm_network_interface.inventory.id
+  ip_configuration_name   = "internal"
+  backend_address_pool_id = azurerm_lb_backend_address_pool.application.id
 }
 
 resource "azurerm_linux_virtual_machine" "inventory" {
@@ -256,6 +333,11 @@ resource "azurerm_linux_virtual_machine" "inventory" {
     offer     = "ubuntu-24_04-lts"
     sku       = "server"
     version   = "latest"
+  }
+
+  lifecycle {
+    # Cloud-init changes require replacement; manage existing guest configuration separately.
+    ignore_changes = [custom_data]
   }
 }
 

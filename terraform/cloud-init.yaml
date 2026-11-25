@@ -33,6 +33,7 @@ write_files:
       export PGUSER="${postgresql_app_username}"
       export PGAPP_PASSWORD="$(printf '%s' '${postgresql_app_password_b64}' | base64 --decode)"
       export PGSSL="true"
+      export INVENTORY_READ_ONLY="true"
       PGADMIN_PASSWORD="$(printf '%s' '${postgresql_admin_password_b64}' | base64 --decode)"
 
       until pg_isready -h "$PGHOST" -p "$PGPORT" -U "${postgresql_admin_username}" -d postgres; do
@@ -77,6 +78,7 @@ write_files:
         --env PGUSER \
         --env PGPASSWORD \
         --env PGSSL \
+        --env INVENTORY_READ_ONLY \
         "$CONTAINER_REGISTRY_LOGIN_SERVER/inventory-manager:$CONTAINER_IMAGE_TAG"
 
   - path: /etc/systemd/system/inventory-manager.service

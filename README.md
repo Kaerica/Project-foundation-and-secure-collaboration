@@ -29,6 +29,23 @@ The Inventory Manager gives these shop owners a simple digital record of their p
 - **Containerization:** Docker and Docker Compose
 - **Version control & collaboration:** Git, GitHub (Projects board, pull requests, branch protection)
 
+## Architecture
+
+```mermaid
+flowchart LR
+  User[Browser or API client] -->|HTTP :80, planned ingress| LB[Azure Load Balancer]
+  LB -->|TCP :3000| VM[Private Ubuntu VM\nDocker + systemd]
+  VM -->|Private PostgreSQL :5432| DB[(Azure PostgreSQL Flexible Server)]
+  VM -->|Managed identity / AcrPull| ACR[Azure Container Registry]
+  Operator -->|SSH through Bastion| VM
+  CI[GitHub Actions] -->|Build and publish image| ACR
+  CI -->|Ansible deployment, pending integration| VM
+```
+
+The public load-balancer route is present in the local Terraform changes but
+has not been applied. Until approved and applied, there is no Terraform-managed
+public application URL.
+
 ## Project Objectives
 
 - Organize product information in one place.
@@ -89,6 +106,12 @@ list products at or below the stock threshold, `POST /products` to add a
 product, and `PATCH /products/:id/quantity` to update stock. The `/health`
 endpoint reports ready only when PostgreSQL is reachable.
 
+Set `INVENTORY_READ_ONLY=true` to reject both write endpoints with HTTP 403
+before the request body is parsed or the product store is called. The default
+is writable (`false`) for local development. Terraform cloud-init sets the
+variable for a newly provisioned VM; changing cloud-init does not update an
+existing VM because Terraform ignores changes to `custom_data`.
+
 Create a product with `POST /products` and a JSON body containing `name`,
 `price`, and `quantity`. Update its stock with
 `PATCH /products/<id>/quantity` and a JSON body containing `quantity`.
@@ -138,11 +161,13 @@ The test suite currently covers:
 - Low-stock detection for quantities below, exactly at, and above the threshold of 20.
 - An inventory containing products above the low-stock threshold, which returns no low-stock products.
 - Database readiness reporting, product listing and creation, quantity updates, and malformed JSON handling in the HTTP API.
+- Read-only API tests verify POST and PATCH return HTTP 403 without calling
+  store write methods.
 
 Latest local test run:
 
-- Tests run: 24
-- Tests passed: 24
+- Tests run: 26
+- Tests passed: 26
 - Tests failed: 0
 - Tests skipped: 0
 
@@ -292,6 +317,18 @@ AcrPull role; registry administrator credentials are not stored on the VM.
 
 The deployment requires the Azure and Bastion secrets documented in
 [`ansible/README.md`](ansible/README.md).
+
+Deployment is not yet demonstrated end-to-end. The repository's current
+Ansible playbook updates the image tag environment file, but the manually
+configured production startup wrapper must also read that file for SHA-tagged
+deployments to change the running image. The GitHub Actions deployment also
+requires populated repository secrets and a Bastion SKU/configuration that
+supports native client tunnelling. Do not treat the workflow as production
+verified until those prerequisites are resolved and a deployment is tested.
+
+The application image currently deployed to the existing VM was previously
+verified in read-only mode. The local source and Terraform changes in this
+worktree are not yet merged or deployed.
 
 ## AI Use
 
