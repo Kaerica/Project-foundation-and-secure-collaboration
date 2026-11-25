@@ -96,7 +96,7 @@ jobs:
         run: npm run test:database
 
       - name: Build Docker image
-        run: docker build -t inventory-manager .
+        run: docker build -t "inventory-manager:${GITHUB_SHA}" .
 
       - name: Container scan (Trivy) - report
         run: |
@@ -106,7 +106,7 @@ jobs:
             aquasec/trivy:0.58.1 image \
             --format json \
             --output /workspace/trivy-report.json \
-            inventory-manager
+            "inventory-manager:${GITHUB_SHA}"
 
       - name: Container scan (Trivy) - enforce
         run: |
@@ -116,7 +116,17 @@ jobs:
             --exit-code 1 \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
-            inventory-manager
+            "inventory-manager:${GITHUB_SHA}"
+
+      - name: Save scanned image
+        run: docker save "inventory-manager:${GITHUB_SHA}" --output inventory-manager-image.tar
+
+      - name: Upload scanned image
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventory-manager-image
+          path: inventory-manager-image.tar
+          retention-days: 1
 
       - name: Upload full Trivy report
         if: always()
@@ -141,5 +151,5 @@ jobs:
             bridgecrew/checkov:3.2.500 \
             --directory . \
             --framework terraform dockerfile github_actions \
-            --skip-check CKV_AZURE_136,CKV_AZURE_166,CKV_AZURE_163,CKV_AZURE_139,CKV_AZURE_165,CKV_AZURE_167,CKV_AZURE_237,CKV_AZURE_233,CKV_AZURE_164,CKV2_AZURE_57 \
+            --skip-check CKV_AZURE_136,CKV_AZURE_166,CKV_AZURE_165,CKV_AZURE_167,CKV_AZURE_237,CKV_AZURE_233,CKV_AZURE_164,CKV2_AZURE_57 \
             --compact

@@ -57,3 +57,13 @@ output "vm_id" {
   description = "Azure VM resource ID"
   value       = azurerm_linux_virtual_machine.inventory.id
 }
+
+output "github_runner_vm_id" {
+  description = "Resource ID of the private GitHub Actions runner VM"
+  value       = azurerm_linux_virtual_machine.github_runner.id
+}
+
+output "github_runner_private_ip_address" {
+  description = "Private IP address of the GitHub Actions runner VM"
+  value       = azurerm_network_interface.github_runner.private_ip_address
+}

@@ -1,0 +1,33 @@
+#cloud-config
+package_update: true
+
+packages:
+  - ca-certificates
+  - curl
+  - docker.io
+  - git
+  - gnupg
+  - jq
+  - unzip
+
+users:
+  - default
+  - name: ghrunner
+    gecos: GitHub Actions runner
+    shell: /bin/bash
+    lock_passwd: true
+
+runcmd:
+  - |
+    set -e
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+      | gpg --dearmor --yes -o /etc/apt/keyrings/microsoft.gpg
+    chmod a+r /etc/apt/keyrings/microsoft.gpg
+    printf '%s\n' \
+      "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main" \
+      > /etc/apt/sources.list.d/azure-cli.list
+    apt-get update
+    apt-get install -y azure-cli
+    usermod -aG docker ghrunner
+    systemctl enable --now docker

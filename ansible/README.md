@@ -18,7 +18,8 @@ Terraform creates the VM with:
 The systemd service starts `/usr/local/sbin/start-inventory-manager`. The
 script reads `/etc/inventory-manager.env`, authenticates with ACR using the VM
 managed identity, pulls the configured image, and runs the application on port
-3000.
+3000. That identity has registry-scoped `AcrPull` and `Reader` roles so Azure
+CLI can resolve registry metadata and authenticate without an admin password.
 
 The Ansible playbook installs Docker and Compose, updates the image/tag
 environment file, and restarts the systemd service when the requested image ID
@@ -67,7 +68,9 @@ ansible-playbook -i ansible/inventory.ini ansible/playbook.yml \
   -e ansible_ssh_private_key_file="$HOME/.ssh/ansible_cd" \
   -e ansible_user="<TERRAFORM_VM_ADMIN_USERNAME>" \
   -e container_registry_name="<ACR_NAME>" \
+  -e container_registry_resource_group="<AZURE_RESOURCE_GROUP>" \
   -e container_registry_login_server="<ACTUAL_ACR_LOGIN_SERVER>" \
+  -e azure_subscription_id="<AZURE_SUBSCRIPTION_ID>" \
   -e container_image_tag="<GIT_SHA_OR_COMMIT_TAG>"
 ```
 
@@ -95,23 +98,24 @@ connectivity tests.
 [`.github/workflows/cd.yml`](../.github/workflows/cd.yml) runs after a merge to
 `main`, and calls the same CI workflow first. Deployment only starts if CI
 passes. It:
-
-1. logs in to Azure,
-2. builds the Docker image,
-3. pushes only the Git SHA-tagged image to ACR,
-4. opens an Azure Bastion tunnel,
-5. runs this playbook through Ansible,
-6. verifies `/health` and the running image ID, and
-7. closes the tunnel.
+1. calls the shared CI workflow, which tests and scans the image,
+2. validates production secrets, ACR settings, Bastion, and the target VM on a
+   hosted preflight runner,
+3. passes the scanned image artifact to the private VNet runner,
+4. uses the runner's managed identity to push the Git-SHA-tagged image to
+   Premium ACR over Private Link,
+5. opens an Azure Bastion tunnel from a hosted runner,
+6. runs this playbook through Ansible,
+7. verifies `/health` and the running image ID, and
+8. closes the tunnel.
 
 The Git SHA tag identifies the exact commit used to build an image. It is not
 automatically immutable: registry-level tag immutability must be enabled and
 configured separately in Azure Container Registry.
 
-Terraform has upgraded Bastion to Standard and Azure state confirms native
-client tunnelling is enabled. Standard Bastion may add ongoing cost. The
-end-to-end GitHub deployment still needs its production secrets and has not
-yet been verified.
+Terraform configures Standard Bastion and native client tunnelling, but the
+configuration is not proof that resources exist. Standard Bastion may add
+ongoing cost. The end-to-end GitHub deployment has not been verified.
 
 The image ID check intentionally fails if the running service does not match
 the requested tag. The existing production VM's startup wrapper must consume
@@ -130,8 +134,17 @@ Configure these GitHub Actions secrets for the `production` environment:
 | `AZURE_VM_SSH_PRIVATE_KEY` | Private key matching the VM public key |
 | `AZURE_VM_SSH_HOST_KEY` | Trusted SSH host key or host-and-key line for the application VM |
 | `ACR_NAME` | Azure Container Registry resource name |
+| `AZURE_SUBSCRIPTION_ID` | Subscription context for the private runner's managed-identity Azure CLI |
 
 Do not store private keys or Terraform state in the repository.
+
+The `private-acr` organization runner group must allow only this repository
+and the trusted workflow
+`Kaerica/Project-foundation-and-secure-collaboration/.github/workflows/cd.yml@refs/heads/main`.
+This manual restriction is essential: a self-hosted runner must not execute
+untrusted pull-request code. The runner must be registered after the VM is
+created, using a short-lived token from GitHub; do not put that token in
+Terraform or the repository.
 
 The CD workflow requires `AZURE_VM_SSH_HOST_KEY` before opening Ansible access.
 Obtain the value from a verified SSH session to the VM or the VM administrator;

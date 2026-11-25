@@ -36,14 +36,17 @@ flowchart LR
   User[Browser or API client] -->|HTTP :80| LB[Azure Load Balancer]
   LB -->|TCP :3000| VM[Private Ubuntu VM\nDocker + systemd]
   VM -->|Private PostgreSQL :5432| DB[(Azure PostgreSQL Flexible Server)]
-  VM -->|Managed identity / AcrPull| ACR[Azure Container Registry]
+  VM -->|Managed identity / AcrPull| ACR[Premium private ACR]
   Operator -->|SSH through Bastion| VM
-  CI[GitHub Actions] -->|Build and publish image| ACR
-  CI -->|Ansible deployment, pending integration| VM
+  CI[GitHub Actions CI\nbuild + scan] -->|One-day image artifact| Runner[Private VNet runner]
+  Runner -->|Managed identity / AcrPush| ACR
+  CD[Hosted GitHub Actions CD] -->|Bastion + Ansible| VM
 ```
 
-The public load-balancer route is provisioned and verified at
-http://172.202.88.20. It is plain HTTP, not HTTPS.
+Terraform defines a public HTTP load-balancer route, but code alone does not
+prove that it is deployed. The checked Azure for Students subscription had no
+resources; verify any live URL independently before presenting it. The route
+is plain HTTP, not HTTPS.
 
 ## Project Objectives
 
@@ -303,34 +306,30 @@ See [SECURITY.md](SECURITY.md) for the findings, how they were fixed, and the ri
 
 GitHub Actions deploys a merged `main` branch through
 [`.github/workflows/cd.yml`](.github/workflows/cd.yml), after the shared CI
-workflow passes. The workflow builds the image, pushes the Git SHA tag to
-Azure Container Registry,
-opens Azure Bastion, and runs the Ansible playbook over a local SSH tunnel.
-The Git SHA identifies the build commit, but SHA tags are not automatically
-immutable. Registry-level immutability requires separate ACR configuration.
+workflow and hosted Azure/secret preflight pass. CI builds and scans the Docker
+image, then uploads that exact image as a short-retention artifact. A dedicated
+self-hosted runner inside the VNet verifies private DNS and ACR settings before
+it pushes the Git-SHA-tagged image to Premium private ACR. A hosted runner then
+opens Azure Bastion and runs the Ansible playbook over a local SSH tunnel. The
+Git SHA identifies the build commit, but SHA tags are not automatically
+immutable.
 
 Ansible updates `/etc/inventory-manager.env` on the private application VM and
 compares the desired image ID with the running container ID. It restarts
 `inventory-manager` only when the deployment environment, image ID, or systemd
 service state requires it. The VM pulls images through its managed identity and
-AcrPull role; registry administrator credentials are not stored on the VM.
+registry-scoped `AcrPull` and `Reader` roles; registry administrator
+credentials are not stored on the VM.
 
-The deployment requires Standard Bastion with native client tunnelling enabled
-and the Azure and Bastion secrets documented in
-[`ansible/README.md`](ansible/README.md).
+The deployment requires a registered `private-acr` runner group restricted to
+the trusted CD workflow, the Azure infrastructure and production secrets
+documented in [`ansible/README.md`](ansible/README.md), and Standard Bastion
+with native client tunnelling enabled.
 
-Deployment is not yet demonstrated end-to-end. The repository's current
-Ansible playbook updates the image tag environment file, but the manually
-configured production startup wrapper must also read that file for SHA-tagged
-deployments to change the running image. The Standard Bastion upgrade and
-native tunnelling are now applied and verified, but the GitHub Actions
-deployment still requires all production secrets. Do not treat the workflow
-as production verified until those prerequisites are resolved and a deployment
-is tested.
-
-The application image currently deployed to the existing VM was previously
-verified in read-only mode. The local source and Terraform changes in this
-worktree are not yet merged or deployed.
+No successful end-to-end CD run or live Azure deployment is verified by this
+repository change. The target subscription was previously found empty. The
+runner registration, organization runner-group restriction, production
+secrets, infrastructure apply, and a successful deployment remain prerequisites.
 
 ## AI Use
 

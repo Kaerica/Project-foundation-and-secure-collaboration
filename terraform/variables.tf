@@ -21,6 +21,12 @@ variable "vm_size" {
   default     = "Standard_B1s"
 }
 
+variable "github_runner_vm_size" {
+  description = "Azure VM size for the private ACR publishing runner"
+  type        = string
+  default     = "Standard_B2s"
+}
+
 variable "admin_username" {
   description = "Linux VM administrator username"
   type        = string

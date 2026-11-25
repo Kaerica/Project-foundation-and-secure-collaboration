@@ -17,7 +17,7 @@ All scans run in [.github/workflows/ci.yml](.github/workflows/ci.yml) on every p
 - **HIGH/CRITICAL only.** LOW and MEDIUM findings are reported but don't block merges. Blocking on every finding would make the pipeline fail all the time over issues that can't be exploited here, and people would start ignoring it.
 - **`--ignore-unfixed` for Trivy.** A vulnerability with no published fix can't be fixed by changing our code or rebuilding the image. Blocking on it would stop every merge without making anything safer. Unfixed vulnerabilities still show up in the full report (see below) so we can track them.
 - **Pinned scanner versions.** Trivy and Checkov run from pinned Docker images, not floating `@latest` tags or third-party wrapper actions. Results stay reproducible, and the risk of a compromised action tag running in our pipeline goes down.
-- **Checkov exclusions.** The workflow skips `CKV_AZURE_136`, `CKV_AZURE_166`, `CKV_AZURE_163`, `CKV_AZURE_139`, `CKV_AZURE_165`, `CKV_AZURE_167`, `CKV_AZURE_237`, `CKV_AZURE_233`, `CKV_AZURE_164`, and `CKV2_AZURE_57`. These are explicit exceptions, not passing checks; review them before production or infrastructure changes.
+- **Checkov exclusions.** The workflow skips `CKV_AZURE_136`, `CKV_AZURE_166`, `CKV_AZURE_165`, `CKV_AZURE_167`, `CKV_AZURE_237`, `CKV_AZURE_233`, `CKV_AZURE_164`, and `CKV2_AZURE_57`. These are explicit exceptions, not passing checks; review them before production or infrastructure changes.
 
 ### Reports
 
@@ -105,7 +105,7 @@ See [Accepted Risks](#accepted-risks) for the reasoning.
 | Trivy OS CVEs (Finding 2b) | The initial scan found 34 HIGH and 1 CRITICAL Debian base-package vulnerabilities. The latest verified PR report found 37 HIGH and 1 CRITICAL OS findings in Debian 12.15. | The latest report lists no fixed version for any of those 38 findings, so the configured fixable-only gate does not fail on them. Most are in OS packages rather than application dependencies; the container runs as non-root `node`. These remain known findings, not proof of zero image vulnerabilities. | Recheck the uploaded full report regularly and when the base image changes. The CI gate fails on fixable HIGH/CRITICAL findings. Consider a supported minimal runtime image to reduce OS packages. |
 | PostgreSQL resilience | `CKV_AZURE_136`: geo-redundant backups are disabled. | This is a single-region development database; enabling cross-region backup has additional cost and requires a supported region/configuration. | Public access is disabled, the database is on its delegated private subnet, private DNS is linked to the VNet, and the application subnet is explicitly allowed to reach PostgreSQL. Revisit backups for production. |
 | PostgreSQL private-network model | `CKV2_AZURE_57` expects a Private Link endpoint. | This server uses PostgreSQL Flexible Server's delegated-subnet (VNet integration) mode, an Azure-supported private-access model with no public endpoint; it is not the public-access-plus-private-endpoint mode. | See [Azure PostgreSQL private access networking](https://learn.microsoft.com/azure/postgresql/network/concepts-networking-private). |
-| Basic ACR limitations | `CKV_AZURE_139` and several other checks flag public access and Premium security/resilience features. The current registry is Basic and public. | Premium Private Link, dedicated data endpoints, zone/geo redundancy, quarantine, and trusted-image controls increase cost. The team has not selected or approved that upgrade. | Admin access is disabled and the VM receives `AcrPull` via managed identity, but the registry is **not private**. This remains an assignment gap until Premium Private Link and an in-network publishing path are approved and implemented. |
+| Private ACR and publishing runner | Terraform now configures Premium ACR with public network access disabled, a Private Link endpoint and private DNS, plus a VNet runner with registry-scoped managed-identity permissions. The runner must be registered and safely restricted in GitHub manually. | Premium ACR, Private Link, and a dedicated VM cost more than Basic ACR and GitHub-hosted CI. No Azure deployment or cost approval is implied by these code changes. | The CD runner verifies private ACR DNS and disabled public access before pushing. Restrict its runner group to this repository's trusted `cd.yml` workflow on `main`; never allow PR workflows on it. Verify the deployment and its actual network controls after an approved apply. |
 
 ## Other Security Practices
 
@@ -114,6 +114,7 @@ See [Accepted Risks](#accepted-risks) for the reasoning.
 - **No secrets in the repository:** `.env` and `*.tfvars` are git-ignored, and only `.env.example` and `terraform.tfvars.example` with placeholders are committed.
 - **Least-privilege CI token:** the workflow's `GITHUB_TOKEN` has read-only `contents` permission.
 - **Branch protection:** The active `foundation ruleset` requires pull requests and one approving review. The live ruleset checked on November 24, 2026 has no required status checks configured. Therefore, the successful CI jobs do **not** currently block merging. Configure `ansible-check`, `dependency-scan`, `build`, and `iac-scan` as required checks in the ruleset before relying on them as merge gates.
+- **Private runner isolation:** The workflow targets the `private-acr` organization runner group only for the main-branch CD publisher. An organization administrator must restrict that group to this repository and the trusted CD workflow before registering or using the runner.
 
 ## Running the Scans Locally
 
@@ -132,7 +133,7 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 # 3. IaC scan (run from the repository root)
 docker run --rm -v "$(pwd)":/repo -w /repo bridgecrew/checkov:3.2.500 \
   --directory . --framework terraform dockerfile github_actions \
-  --skip-check CKV_AZURE_136,CKV_AZURE_166,CKV_AZURE_163,CKV_AZURE_139,CKV_AZURE_165,CKV_AZURE_167,CKV_AZURE_237,CKV_AZURE_233,CKV_AZURE_164,CKV2_AZURE_57 --compact
+  --skip-check CKV_AZURE_136,CKV_AZURE_166,CKV_AZURE_165,CKV_AZURE_167,CKV_AZURE_237,CKV_AZURE_233,CKV_AZURE_164,CKV2_AZURE_57 --compact
 ```
 
 On Git Bash for Windows, put `MSYS_NO_PATHCONV=1` in front of the `docker run` commands.

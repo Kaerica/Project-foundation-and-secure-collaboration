@@ -38,6 +38,16 @@ through containerization, DevSecOps, and the summative infrastructure work.
 
 ## Summative — Infrastructure as Code and Deployment
 
+- Updated the target Terraform design to use Premium ACR with disabled public
+  access, Private Link/private DNS, and a dedicated VNet runner with
+  registry-scoped managed identity.
+- Updated CI to upload the exact image that passed Trivy; CD now publishes that
+  artifact from the private runner before deploying through Bastion and
+  Ansible. Runner registration and workflow-group restrictions remain manual.
+- Updated deployment documentation to distinguish Terraform configuration
+  from resources verified in Azure. No infrastructure was applied, and no
+  deployment is claimed as successful by these changes.
+
 - Added Azure Terraform resources for a virtual network, Bastion, private
   application VM, private PostgreSQL Flexible Server, NAT Gateway, network
   security rules, and Azure Container Registry.
@@ -47,11 +57,14 @@ through containerization, DevSecOps, and the summative infrastructure work.
   routes, with tests ensuring rejected writes never reach the store. Terraform
   cloud-init enables the guard for newly provisioned VMs.
 - Added Terraform configuration for public HTTP load-balancer ingress and
-  health probes. Applied and verified the public endpoint
-  `http://172.202.88.20`; GET `/health` and `/` both returned HTTP 200.
+  health probes. Earlier project notes recorded the public endpoint
+  `http://172.202.88.20`; the currently checked Azure for Students
+  subscription has no resources, so do not present that endpoint as live
+  without independently verifying the target subscription.
 - Upgraded Bastion to Standard and enabled native client tunnelling for Ansible
-  CD; Terraform state confirms both settings. Standard Bastion may incur
-  higher ongoing cost.
+  CD in Terraform. Current Azure state for the target subscription has not
+  verified these resources or settings. Standard Bastion may incur higher
+  ongoing cost.
 - Updated architecture and setup documentation, including the HTTP-only
   ingress limitation and the fact that Terraform ignores changes to VM
   `custom_data`.
@@ -61,13 +74,11 @@ through containerization, DevSecOps, and the summative infrastructure work.
   Ansible syntax validation to CI and limited CD to pushes to `main`.
 - Validation of the current local source: 26 application tests pass, lint
   passes, and the Linux Ansible syntax check and GitHub workflow YAML parsing
-  pass. Terraform was unchanged in this follow-up; earlier Terraform format,
-  validation, and plan results remain as previously recorded. The apply's
+  passed at that point. The apply's
   attempt to disable VM extension operations failed because Azure extensions
   were present; no extensions were removed. Terraform now ignores this field
   for the existing VM.
 - Remaining integration work includes verifying or updating the existing
   production VM startup wrapper, adding required GitHub deployment secrets,
-  deciding whether a private ACR path is required, and demonstrating a
-  successful end-to-end deployment. No changes in this worktree have been
-  applied to Azure or committed/pushed.
+  registering and restricting the private runner, applying infrastructure
+  only after approval, and demonstrating a successful end-to-end deployment.

@@ -16,8 +16,228 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  deploy:
+  preflight:
     needs: ci
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Validate deployment secrets
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_BASTION_NAME: ${{ secrets.AZURE_BASTION_NAME }}
+          AZURE_VM_RESOURCE_ID: ${{ secrets.AZURE_VM_RESOURCE_ID }}
+          AZURE_VM_ADMIN_USERNAME: ${{ secrets.AZURE_VM_ADMIN_USERNAME }}
+          AZURE_VM_SSH_PRIVATE_KEY: ${{ secrets.AZURE_VM_SSH_PRIVATE_KEY }}
+          AZURE_VM_SSH_HOST_KEY: ${{ secrets.AZURE_VM_SSH_HOST_KEY }}
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for name in \
+            AZURE_CREDENTIALS \
+            AZURE_RESOURCE_GROUP \
+            AZURE_SUBSCRIPTION_ID \
+            AZURE_BASTION_NAME \
+            AZURE_VM_RESOURCE_ID \
+            AZURE_VM_ADMIN_USERNAME \
+            AZURE_VM_SSH_PRIVATE_KEY \
+            AZURE_VM_SSH_HOST_KEY \
+            ACR_NAME; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Missing CD prerequisites:"
+            printf '  - %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+          if [[ "$AZURE_VM_SSH_HOST_KEY" != "[127.0.0.1]:2222 "* ]]; then
+            echo "Invalid AZURE_VM_SSH_HOST_KEY format: expected a verified known_hosts entry for [127.0.0.1]:2222."
+            exit 1
+          fi
+
+          key_path="$RUNNER_TEMP/ansible-cd-key-validation"
+          printf '%s\n' "$AZURE_VM_SSH_PRIVATE_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          if ! ssh-keygen -y -f "$key_path" >/dev/null 2>&1; then
+            echo "AZURE_VM_SSH_PRIVATE_KEY is not a valid private SSH key."
+            rm -f "$key_path"
+            exit 1
+          fi
+          rm -f "$key_path"
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure Bastion CLI extension
+        run: az extension add --name bastion --yes
+
+      - name: Verify target infrastructure
+        env:
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_BASTION_NAME: ${{ secrets.AZURE_BASTION_NAME }}
+          AZURE_VM_RESOURCE_ID: ${{ secrets.AZURE_VM_RESOURCE_ID }}
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          set -euo pipefail
+          az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+
+          az group show --name "$AZURE_RESOURCE_GROUP" --query id -o tsv >/dev/null
+          az vm show --ids "$AZURE_VM_RESOURCE_ID" --query id -o tsv >/dev/null
+
+          acr_public_network_access="$(az acr show \
+            --name "$ACR_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --subscription "$AZURE_SUBSCRIPTION_ID" \
+            --query publicNetworkAccess -o tsv)"
+          if [ "$acr_public_network_access" != "Disabled" ]; then
+            echo "Preflight blocked: ACR public network access is '$acr_public_network_access', not Disabled."
+            exit 1
+          fi
+
+          bastion_sku="$(az network bastion show \
+            --name "$AZURE_BASTION_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'sku.name' -o tsv)"
+          if [[ "$bastion_sku" != "Standard" && "$bastion_sku" != "Premium" ]]; then
+            echo "Preflight blocked: Bastion SKU '$bastion_sku' does not support native client tunnelling."
+            exit 1
+          fi
+
+          bastion_enable_tunneling="$(az network bastion show \
+            --name "$AZURE_BASTION_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query enableTunneling -o tsv)"
+          if [ "$bastion_enable_tunneling" != "true" ]; then
+            echo "Preflight blocked: native client tunnelling is not enabled on Bastion."
+            exit 1
+          fi
+
+  publish-image:
+    needs:
+      - ci
+      - preflight
+    runs-on:
+      group: private-acr
+      labels: private-acr
+    environment: production
+
+    steps:
+      - name: Download scanned image
+        uses: actions/download-artifact@v4
+        with:
+          name: inventory-manager-image
+
+      - name: Authenticate to Azure and verify private ACR access
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+
+          export AZURE_CONFIG_DIR="$RUNNER_TEMP/private-acr-azure-cli"
+          mkdir -p "$AZURE_CONFIG_DIR"
+          echo "AZURE_CONFIG_DIR=$AZURE_CONFIG_DIR" >> "$GITHUB_ENV"
+
+          for name in ACR_NAME AZURE_RESOURCE_GROUP AZURE_SUBSCRIPTION_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required production environment secret: $name"
+              exit 1
+            fi
+          done
+
+          az login --identity --allow-no-subscriptions
+          acr_json="$(az acr show \
+            --name "$ACR_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --subscription "$AZURE_SUBSCRIPTION_ID" \
+            --output json)"
+          acr_login_server="$(printf '%s' "$acr_json" | jq -r '.loginServer')"
+          public_network_access="$(printf '%s' "$acr_json" | jq -r '.publicNetworkAccess')"
+
+          if [ -z "$acr_login_server" ] || [ "$acr_login_server" = "null" ]; then
+            echo "ACR did not return a login server."
+            exit 1
+          fi
+          if [ "$public_network_access" != "Disabled" ]; then
+            echo "Refusing to publish: ACR public network access is '$public_network_access', not Disabled."
+            exit 1
+          fi
+
+          python3 - "$acr_login_server" <<'PY'
+          import ipaddress
+          import socket
+          import sys
+
+          hostname = sys.argv[1]
+          addresses = {
+              result[4][0]
+              for result in socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
+          }
+          if not addresses:
+              raise SystemExit(f"No IP addresses resolved for {hostname}")
+          public = sorted(
+              address for address in addresses
+              if not ipaddress.ip_address(address).is_private
+          )
+          if public:
+              raise SystemExit(
+                  f"Refusing to publish: {hostname} resolved to non-private address(es): "
+                  + ", ".join(public)
+              )
+          print(f"{hostname} resolves only to private address(es): {', '.join(sorted(addresses))}")
+          PY
+
+          echo "ACR_LOGIN_SERVER=$acr_login_server" >> "$GITHUB_ENV"
+          az acr login \
+            --name "$ACR_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --subscription "$AZURE_SUBSCRIPTION_ID"
+
+      - name: Push the scanned Git-SHA image
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker load --input inventory-manager-image.tar
+          docker tag "inventory-manager:$IMAGE_TAG" "$ACR_LOGIN_SERVER/inventory-manager:$IMAGE_TAG"
+          docker push "$ACR_LOGIN_SERVER/inventory-manager:$IMAGE_TAG"
+
+      - name: Remove registry credentials and image artifacts
+        if: always()
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${ACR_LOGIN_SERVER:-}" ]; then
+            if ! docker logout "$ACR_LOGIN_SERVER"; then
+              echo "::warning::Could not remove the cached ACR Docker login."
+            fi
+            if ! docker image rm \
+              "inventory-manager:$IMAGE_TAG" \
+              "$ACR_LOGIN_SERVER/inventory-manager:$IMAGE_TAG"; then
+              echo "::warning::Could not remove one or more local image tags."
+            fi
+          fi
+          rm -f "$GITHUB_WORKSPACE/inventory-manager-image.tar"
+
+  deploy:
+    needs:
+      - ci
+      - preflight
+      - publish-image
     runs-on: ubuntu-latest
     environment: production
 
@@ -43,6 +263,7 @@ jobs:
           AZURE_VM_SSH_PRIVATE_KEY: ${{ secrets.AZURE_VM_SSH_PRIVATE_KEY }}
           AZURE_VM_SSH_HOST_KEY: ${{ secrets.AZURE_VM_SSH_HOST_KEY }}
           ACR_NAME: ${{ secrets.ACR_NAME }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -euo pipefail
 
@@ -55,7 +276,8 @@ jobs:
             "AZURE_VM_ADMIN_USERNAME=$AZURE_VM_ADMIN_USERNAME" \
             "AZURE_VM_SSH_PRIVATE_KEY=$AZURE_VM_SSH_PRIVATE_KEY" \
             "AZURE_VM_SSH_HOST_KEY=$AZURE_VM_SSH_HOST_KEY" \
-            "ACR_NAME=$ACR_NAME"; do
+            "ACR_NAME=$ACR_NAME" \
+            "AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID"; do
             name="${item%%=*}"
             value="${item#*=}"
             if [ -z "$value" ]; then
@@ -100,8 +322,10 @@ jobs:
           AZURE_BASTION_NAME: ${{ secrets.AZURE_BASTION_NAME }}
           AZURE_VM_RESOURCE_ID: ${{ secrets.AZURE_VM_RESOURCE_ID }}
           ACR_NAME: ${{ secrets.ACR_NAME }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         run: |
           set -euo pipefail
+          az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
           if ! az group show --name "$AZURE_RESOURCE_GROUP" --query id -o tsv >/dev/null; then
             echo "Deployment prerequisite missing — Azure resource group '$AZURE_RESOURCE_GROUP' does not exist or is inaccessible."
@@ -116,12 +340,22 @@ jobs:
           if ! acr_login_server="$(az acr show \
             --name "$ACR_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
+            --subscription "$AZURE_SUBSCRIPTION_ID" \
             --query loginServer -o tsv)"; then
             echo "Deployment prerequisite missing: ACR '$ACR_NAME' does not exist or is inaccessible."
             exit 1
           fi
           if [ -z "$acr_login_server" ]; then
             echo "Deployment prerequisite missing: ACR '$ACR_NAME' did not return a login server."
+            exit 1
+          fi
+          acr_public_network_access="$(az acr show \
+            --name "$ACR_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --subscription "$AZURE_SUBSCRIPTION_ID" \
+            --query publicNetworkAccess -o tsv)"
+          if [ "$acr_public_network_access" != "Disabled" ]; then
+            echo "Deployment blocker: ACR '$ACR_NAME' public network access is '$acr_public_network_access', not Disabled."
             exit 1
           fi
           echo "acr_login_server=$acr_login_server" >> "$GITHUB_OUTPUT"
@@ -162,19 +396,6 @@ jobs:
             echo "The enableTunneling setting must be approved and enabled before this workflow can deploy."
             exit 1
           fi
-
-      - name: Build and push SHA-tagged ACR image
-        env:
-          ACR_NAME: ${{ secrets.ACR_NAME }}
-          ACR_LOGIN_SERVER: ${{ steps.azure-prerequisites.outputs.acr_login_server }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          az acr login --name "$ACR_NAME"
-          docker build -t "inventory-manager:$IMAGE_TAG" .
-          docker tag "inventory-manager:$IMAGE_TAG" "$ACR_LOGIN_SERVER/inventory-manager:$IMAGE_TAG"
-          docker push "$ACR_LOGIN_SERVER/inventory-manager:$IMAGE_TAG"
 
       - name: Write VM SSH private key
         env:
@@ -245,6 +466,8 @@ jobs:
       - name: Deploy and verify through Ansible
         env:
           ACR_NAME: ${{ secrets.ACR_NAME }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ACR_LOGIN_SERVER: ${{ steps.azure-prerequisites.outputs.acr_login_server }}
           VM_ADMIN_USERNAME: ${{ secrets.AZURE_VM_ADMIN_USERNAME }}
           IMAGE_TAG: ${{ github.sha }}
@@ -259,7 +482,9 @@ jobs:
             -e "ansible_user=$VM_ADMIN_USERNAME" \
             -e "ansible_ssh_private_key_file=$HOME/.ssh/ansible_cd" \
             -e "container_registry_name=$ACR_NAME" \
+            -e "container_registry_resource_group=$AZURE_RESOURCE_GROUP" \
             -e "container_registry_login_server=$ACR_LOGIN_SERVER" \
+            -e "azure_subscription_id=$AZURE_SUBSCRIPTION_ID" \
             -e "container_image_tag=$IMAGE_TAG"
 
       - name: Close Bastion tunnel

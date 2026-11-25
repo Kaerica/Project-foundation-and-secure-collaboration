@@ -41,6 +41,21 @@ resource "azurerm_subnet" "application" {
   address_prefixes     = ["10.0.2.0/24"]
 }
 
+resource "azurerm_subnet" "github_runner" {
+  name                 = "subnet-inventory-runner"
+  resource_group_name  = azurerm_resource_group.inventory.name
+  virtual_network_name = azurerm_virtual_network.inventory.name
+  address_prefixes     = ["10.0.5.0/24"]
+}
+
+resource "azurerm_subnet" "private_endpoints" {
+  name                              = "subnet-inventory-private-endpoints"
+  resource_group_name               = azurerm_resource_group.inventory.name
+  virtual_network_name              = azurerm_virtual_network.inventory.name
+  address_prefixes                  = ["10.0.6.0/24"]
+  private_endpoint_network_policies = "NetworkSecurityGroupEnabled"
+}
+
 resource "azurerm_subnet" "database" {
   name                 = "subnet-inventory-db"
   resource_group_name  = azurerm_resource_group.inventory.name
@@ -246,6 +261,52 @@ resource "azurerm_subnet_network_security_group_association" "application" {
   network_security_group_id = azurerm_network_security_group.application.id
 }
 
+resource "azurerm_network_security_group" "github_runner" {
+  name                = "nsg-inventory-runner-${var.environment}"
+  location            = azurerm_resource_group.inventory.location
+  resource_group_name = azurerm_resource_group.inventory.name
+
+  security_rule {
+    name                       = "allow-ssh-from-bastion"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = azurerm_subnet.bastion.address_prefixes[0]
+    destination_address_prefix = "*"
+  }
+}
+
+resource "azurerm_subnet_network_security_group_association" "github_runner" {
+  subnet_id                 = azurerm_subnet.github_runner.id
+  network_security_group_id = azurerm_network_security_group.github_runner.id
+}
+
+resource "azurerm_network_security_group" "private_endpoints" {
+  name                = "nsg-inventory-private-endpoints-${var.environment}"
+  location            = azurerm_resource_group.inventory.location
+  resource_group_name = azurerm_resource_group.inventory.name
+
+  security_rule {
+    name                       = "allow-acr-https-from-app-and-runner"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefixes    = [azurerm_subnet.application.address_prefixes[0], azurerm_subnet.github_runner.address_prefixes[0]]
+    destination_address_prefix = "*"
+  }
+}
+
+resource "azurerm_subnet_network_security_group_association" "private_endpoints" {
+  subnet_id                 = azurerm_subnet.private_endpoints.id
+  network_security_group_id = azurerm_network_security_group.private_endpoints.id
+}
+
 resource "azurerm_public_ip" "nat" {
   name                = "pip-nat-${var.environment}"
   location            = azurerm_resource_group.inventory.location
@@ -271,6 +332,11 @@ resource "azurerm_subnet_nat_gateway_association" "application" {
   nat_gateway_id = azurerm_nat_gateway.inventory.id
 }
 
+resource "azurerm_subnet_nat_gateway_association" "github_runner" {
+  subnet_id      = azurerm_subnet.github_runner.id
+  nat_gateway_id = azurerm_nat_gateway.inventory.id
+}
+
 resource "azurerm_network_interface" "inventory" {
   name                = "nic-inventory-${var.environment}"
   location            = azurerm_resource_group.inventory.location
@@ -279,6 +345,18 @@ resource "azurerm_network_interface" "inventory" {
   ip_configuration {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.application.id
+    private_ip_address_allocation = "Dynamic"
+  }
+}
+
+resource "azurerm_network_interface" "github_runner" {
+  name                = "nic-inventory-runner-${var.environment}"
+  location            = azurerm_resource_group.inventory.location
+  resource_group_name = azurerm_resource_group.inventory.name
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.github_runner.id
     private_ip_address_allocation = "Dynamic"
   }
 }
@@ -313,15 +391,17 @@ resource "azurerm_linux_virtual_machine" "inventory" {
   }
 
   custom_data = base64encode(templatefile("${path.module}/cloud-init.yaml", {
-    container_registry_name         = azurerm_container_registry.inventory.name
-    container_registry_login_server = azurerm_container_registry.inventory.login_server
-    container_image_tag             = var.container_image_tag
-    postgresql_fqdn                 = azurerm_postgresql_flexible_server.inventory.fqdn
-    postgresql_database_name        = azurerm_postgresql_flexible_server_database.inventory.name
-    postgresql_admin_username       = var.postgresql_admin_username
-    postgresql_admin_password_b64   = base64encode(var.postgresql_admin_password)
-    postgresql_app_username         = var.postgresql_app_username
-    postgresql_app_password_b64     = base64encode(var.postgresql_app_password)
+    subscription_id                   = var.subscription_id
+    container_registry_resource_group = azurerm_resource_group.inventory.name
+    container_registry_name           = azurerm_container_registry.inventory.name
+    container_registry_login_server   = azurerm_container_registry.inventory.login_server
+    container_image_tag               = var.container_image_tag
+    postgresql_fqdn                   = azurerm_postgresql_flexible_server.inventory.fqdn
+    postgresql_database_name          = azurerm_postgresql_flexible_server_database.inventory.name
+    postgresql_admin_username         = var.postgresql_admin_username
+    postgresql_admin_password_b64     = base64encode(var.postgresql_admin_password)
+    postgresql_app_username           = var.postgresql_app_username
+    postgresql_app_password_b64       = base64encode(var.postgresql_app_password)
   }))
 
   os_disk {
@@ -339,6 +419,41 @@ resource "azurerm_linux_virtual_machine" "inventory" {
   lifecycle {
     # Existing guest data and VM extension settings cannot be safely reconciled in-place.
     ignore_changes = [custom_data, allow_extension_operations]
+  }
+}
+
+resource "azurerm_linux_virtual_machine" "github_runner" {
+  name                = "vm-inventory-runner-${var.environment}"
+  resource_group_name = azurerm_resource_group.inventory.name
+  location            = azurerm_resource_group.inventory.location
+  size                = var.github_runner_vm_size
+  admin_username      = var.admin_username
+
+  disable_password_authentication = true
+  allow_extension_operations      = false
+  network_interface_ids           = [azurerm_network_interface.github_runner.id]
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  admin_ssh_key {
+    username   = var.admin_username
+    public_key = var.ssh_public_key
+  }
+
+  custom_data = base64encode(file("${path.module}/github-runner-cloud-init.yaml"))
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "ubuntu-24_04-lts"
+    sku       = "server"
+    version   = "latest"
   }
 }
 
@@ -394,14 +509,67 @@ resource "azurerm_container_registry" "inventory" {
   name                          = var.container_registry_name
   resource_group_name           = azurerm_resource_group.inventory.name
   location                      = azurerm_resource_group.inventory.location
-  sku                           = "Basic"
+  sku                           = "Premium"
   admin_enabled                 = false
-  public_network_access_enabled = true
+  public_network_access_enabled = false
+}
+
+resource "azurerm_private_dns_zone" "acr" {
+  name                = "privatelink.azurecr.io"
+  resource_group_name = azurerm_resource_group.inventory.name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "acr" {
+  name                  = "link-acr-${var.environment}"
+  resource_group_name   = azurerm_resource_group.inventory.name
+  private_dns_zone_name = azurerm_private_dns_zone.acr.name
+  virtual_network_id    = azurerm_virtual_network.inventory.id
+  registration_enabled  = false
+}
+
+resource "azurerm_private_endpoint" "acr" {
+  name                = "pe-acr-${var.environment}"
+  location            = azurerm_resource_group.inventory.location
+  resource_group_name = azurerm_resource_group.inventory.name
+  subnet_id           = azurerm_subnet.private_endpoints.id
+
+  private_service_connection {
+    name                           = "psc-acr-${var.environment}"
+    private_connection_resource_id = azurerm_container_registry.inventory.id
+    is_manual_connection           = false
+    subresource_names              = ["registry"]
+  }
+
+  private_dns_zone_group {
+    name                 = "acr-private-dns"
+    private_dns_zone_ids = [azurerm_private_dns_zone.acr.id]
+  }
 }
 
 resource "azurerm_role_assignment" "registry_pull" {
   scope                = azurerm_container_registry.inventory.id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_linux_virtual_machine.inventory.identity[0].principal_id
+  principal_type       = "ServicePrincipal"
+}
+
+resource "azurerm_role_assignment" "registry_application_reader" {
+  scope                = azurerm_container_registry.inventory.id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_linux_virtual_machine.inventory.identity[0].principal_id
+  principal_type       = "ServicePrincipal"
+}
+
+resource "azurerm_role_assignment" "registry_push" {
+  scope                = azurerm_container_registry.inventory.id
+  role_definition_name = "AcrPush"
+  principal_id         = azurerm_linux_virtual_machine.github_runner.identity[0].principal_id
+  principal_type       = "ServicePrincipal"
+}
+
+resource "azurerm_role_assignment" "registry_runner_reader" {
+  scope                = azurerm_container_registry.inventory.id
+  role_definition_name = "Reader"
+  principal_id         = azurerm_linux_virtual_machine.github_runner.identity[0].principal_id
   principal_type       = "ServicePrincipal"
 }
