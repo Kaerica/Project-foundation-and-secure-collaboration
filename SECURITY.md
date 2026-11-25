@@ -113,7 +113,7 @@ See [Accepted Risks](#accepted-risks) for the reasoning.
 - **Multi-stage build:** build tooling stays in the `builder` stage, and only the app files and production `node_modules` are copied into the runtime image.
 - **No secrets in the repository:** `.env` and `*.tfvars` are git-ignored, and only `.env.example` and `terraform.tfvars.example` with placeholders are committed.
 - **Least-privilege CI token:** the workflow's `GITHUB_TOKEN` has read-only `contents` permission.
-- **Branch protection:** The active `foundation ruleset` requires pull requests and one approving review. The live ruleset checked on November 24, 2026 has no required status checks configured. Therefore, the successful CI jobs do **not** currently block merging. Configure `dependency-scan`, `build`, and `iac-scan` as required checks in the ruleset before relying on them as merge gates.
+- **Branch protection:** The active `foundation ruleset` requires pull requests and one approving review. The live ruleset checked on November 24, 2026 has no required status checks configured. Therefore, the successful CI jobs do **not** currently block merging. Configure `ansible-check`, `dependency-scan`, `build`, and `iac-scan` as required checks in the ruleset before relying on them as merge gates.
 
 ## Running the Scans Locally
 

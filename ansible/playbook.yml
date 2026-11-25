@@ -18,6 +18,15 @@
           - ansible_distribution_version is version("24.04", ">=")
 
   tasks:
+    - name: Install Docker and Docker Compose
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose-v2
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
     - name: Ensure Docker is enabled and running
       ansible.builtin.service:
         name: docker
@@ -138,6 +147,26 @@
       until:
         - application_health.status == 200
         - application_health.json.status == "ok"
+
+    - name: Inspect the running container image after health verification
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - --format
+          - "{{ '{{' }}.Image{{ '}}' }}"
+          - inventory-manager
+      register: deployed_image_id
+      changed_when: false
+
+    - name: Verify that the requested image is running
+      ansible.builtin.assert:
+        that:
+          - deployed_image_id.stdout == desired_image_id.stdout
+        fail_msg: >-
+          The application is healthy but is not running the requested image.
+          Ensure /usr/local/sbin/start-inventory-manager reads
+          /etc/inventory-manager.env before retrying deployment.
 
     - name: Install SSH hardening drop-in with public-key authentication preserved
       ansible.builtin.copy:

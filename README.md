@@ -285,13 +285,13 @@ Task sheet: https://docs.google.com/spreadsheets/d/1TCxL-WfICCbLBdjP55zqJglPlL9q
 
 ## Continuous Integration
 
-GitHub Actions automatically checks code changes by running linting,
-automated tests, and a Docker image build.
+GitHub Actions automatically checks code changes by running Ansible syntax
+validation, linting, automated tests, and a Docker image build.
 
 ### Security Scanning (DevSecOps)
 
 Every push to a non-main branch and every pull request targeting `main` runs
-three security scans:
+three security scans alongside Ansible syntax validation:
 
 - **Dependency scanning:** `npm audit` fails on HIGH or CRITICAL advisories.
 - **Container image scanning:** Trivy fails on fixable HIGH or CRITICAL vulnerabilities.
@@ -302,8 +302,9 @@ See [SECURITY.md](SECURITY.md) for the findings, how they were fixed, and the ri
 ## Continuous Deployment
 
 GitHub Actions deploys a merged `main` branch through
-[`.github/workflows/cd.yml`](.github/workflows/cd.yml). The workflow builds the
-image, pushes the Git SHA tag to Azure Container Registry,
+[`.github/workflows/cd.yml`](.github/workflows/cd.yml), after the shared CI
+workflow passes. The workflow builds the image, pushes the Git SHA tag to
+Azure Container Registry,
 opens Azure Bastion, and runs the Ansible playbook over a local SSH tunnel.
 The Git SHA identifies the build commit, but SHA tags are not automatically
 immutable. Registry-level immutability requires separate ACR configuration.
